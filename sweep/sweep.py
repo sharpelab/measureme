@@ -5,6 +5,7 @@ import sys
 import signal
 import time
 import concurrent
+import inspect
 from collections import defaultdict
 from typing import Callable, Dict, List, Union
 
@@ -206,21 +207,71 @@ class Station:
 
 
     def register_run_before(self, fn, args):
+        """
+        Register a function to run before/after (see below) each measurement step.
+
+        Parameters
+        ----------
+        fn : callable
+            Function called as: fn(*args, **context)
+        args : tuple
+            Positional arguments passed to fn (must be a tuple).
+
+        Context
+        -------
+        The following context arguments may be provided to hooks:
+
+        station : Station
+            The active Station instance.
+        writer : sweep.db.Writer
+            The current data writer (available inside measurement loops).
+        data : list
+            The most recent measured data point (run-after only).
+
+        Hooks receive only the context arguments they explicitly accept.
+        Hooks without contexts can be safely run
+
+        Example
+        -------
+        >>> def before(msg, writer=None):
+        ...     print(msg, writer.id)
+        >>> station.register_run_before(before, args=("hello",))
+        """
+
+        if not isinstance(args, tuple):
+            raise TypeError("args must be a tuple, e.g. (value,)")
         self._run_befores.append((fn, args))
 
 
-    def _run_run_befores(self):
+    def _run_run_befores(self, **context):
         for fn, args in self._run_befores:
-            fn(*args)
+            sig = inspect.signature(fn)
+
+            accepted = {
+                k: v for k, v in context.items()
+                if k in sig.parameters
+            }
+
+            fn(*args, **accepted)
 
 
     def register_run_after(self, fn, args):
+        if not isinstance(args, tuple):
+            raise TypeError("args must be a tuple, e.g. (value,)")
         self._run_afters.append((fn, args))
 
 
-    def _run_run_afters(self):
+    def _run_run_afters(self, **context):
         for fn, args in self._run_afters:
-            fn(*args)
+            sig = inspect.signature(fn)
+
+            accepted = {
+                k: v for k, v in context.items()
+                if k in sig.parameters
+            }
+
+            fn(*args, **accepted)
+
 
 
     def _measure(self) -> List[float]:
@@ -298,9 +349,20 @@ class Station:
             w.metadata['time'] = t
             w.update_metadata()
 
-            self._run_run_befores()
-            w.add_point([t] + self._measure())
-            self._run_run_afters()
+            self._run_run_befores(
+                    station=self,
+                    writer=w,
+                )
+            
+            data = [time.time()] + self._measure()
+            w.add_point(data)
+
+            self._run_run_afters(
+                    station=self,
+                    data=data,
+                    writer=w,
+                )
+            
         self.logger.info(f'Data saved in {w.datapath}')
         return SweepResult(self._basedir, w.id, w.metadata, w.datapath)
 
@@ -325,10 +387,21 @@ class Station:
             t_start = time.monotonic() # Can't go backwards!
             while max_duration is None or time.monotonic() - t_start < max_duration:
                 time.sleep(delay)
-                self._run_run_befores()
+                
+                self._run_run_befores(
+                    station=self,
+                    writer=w,
+                )
+
                 data = [time.time()] + self._measure()
                 w.add_point(data)
                 p.add_point(data)
+
+                self._run_run_afters(
+                    station=self,
+                    data=data,
+                    writer=w,
+                )
 
                 if self.interrupt_requested:
                     self.logger.warning(f'ID {w.id} INTERRUPTED')
@@ -336,7 +409,6 @@ class Station:
                     w.metadata['interrupted'] = True
                     break
 
-                self._run_run_afters()
             w.metadata['end_time'] = time.time()
             image = p.send_image()
             if image is not None:
@@ -373,10 +445,21 @@ class Station:
             for setpoint in tqdm(setpoints):
                 param(setpoint)
                 time.sleep(delay)
-                self._run_run_befores()
+
+                self._run_run_befores(
+                    station=self,
+                    writer=w,
+                )
+
                 data = [time.time(), setpoint] + self._measure()
                 w.add_point(data)
                 p.add_point(data)
+
+                self._run_run_afters(
+                    station=self,
+                    data=data,
+                    writer=w,
+                )
 
                 if self.interrupt_requested:
                     self.logger.warning(f'ID {w.id} INTERRUPTED')
@@ -384,7 +467,6 @@ class Station:
                     w.metadata['interrupted'] = True
                     break
 
-                self._run_run_afters()
             w.metadata['end_time'] = time.time()
             image = p.send_image()
             if image is not None:
@@ -430,10 +512,21 @@ class Station:
                 for param, sp in zip(params, setpoint):
                     param(sp)
                 time.sleep(delay)
-                self._run_run_befores()
+                
+                self._run_run_befores(
+                    station=self,
+                    writer=w,
+                )
+
                 data = [time.time()] + setpoint + self._measure()
                 w.add_point(data)
                 p.add_point(data)
+
+                self._run_run_afters(
+                    station=self,
+                    data=data,
+                    writer=w,
+                )
 
                 if self.interrupt_requested:
                     self.logger.warning(f'ID {w.id} INTERRUPTED')
@@ -441,7 +534,6 @@ class Station:
                     w.metadata['interrupted'] = True
                     break
 
-                self._run_run_afters()
             w.metadata['end_time'] = time.time()
             image = p.send_image()
             if image is not None:
@@ -499,18 +591,26 @@ class Station:
                         break
 
                     time.sleep(fast_delay)
-                    self._run_run_befores()
+                    
+                    self._run_run_befores(
+                        station=self,
+                        writer=w,
+                    )
                     data = [time.time(), ov, iv] + self._measure()
                     w.add_point(data)
                     p.add_point(data)
+
+                    self._run_run_afters(
+                        station=self,
+                        data=data,
+                        writer=w,
+                    )
 
                     if self.interrupt_requested:
                         self.logger.warning(f'ID {w.id} INTERRUPTED')
                         self._interrupted = True
                         w.metadata['interrupted'] = True
                         break
-
-                    self._run_run_afters()
 
                 if self.interrupt_requested:
                     self.logger.warning(f'ID {w.id} INTERRUPTED')
@@ -594,18 +694,27 @@ class Station:
                         break
 
                     time.sleep(fast_delay)
-                    self._run_run_befores()
+                    
+                    self._run_run_befores(
+                        station=self,
+                        writer=w,
+                    )
+                    
                     data = [time.time()] + slow_v + fast_v + self._measure()
                     w.add_point(data)
                     p.add_point(data)
+
+                    self._run_run_afters(
+                        station=self,
+                        data=data,
+                        writer=w,
+                    )
 
                     if self.interrupt_requested:
                         self.logger.warning(f'ID {w.id} INTERRUPTED')
                         self._interrupted = True
                         w.metadata['interrupted'] = True
                         break
-
-                    self._run_run_afters()
 
                 if self.interrupt_requested:
                     self.logger.warning(f'ID {w.id} INTERRUPTED')
