@@ -142,6 +142,6 @@ def pcolorize_data(zs, vertices, nx, ny, fast_axis, rev_x=False, rev_y=False):
 
     xs_mat, ys_mat = _bounding_mesh(vertices, nx, ny, fast_axis, rev_x, rev_y)
     is_raster, js_raster = _rasterized_indices(vertices, xs_mat, ys_mat)
-    zs_mat = np.full((nx, ny), np.nan)
+    zs_mat = np.full(xs_mat.shape, np.nan)
     zs_mat[is_raster, js_raster] = zs
     return xs_mat, ys_mat, zs_mat
