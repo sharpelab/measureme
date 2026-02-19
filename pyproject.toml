@@ -16,7 +16,12 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest", "ruff", "pre-commit"]
+dev = [
+    "pytest",
+    "ruff",
+    "pre-commit",
+    "ty>=0.0.17",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["sweep"]

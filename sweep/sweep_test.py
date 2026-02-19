@@ -6,7 +6,7 @@ import sweep.db as db
 
 
 class _DummyParam:
-    def __init__(self, full_name: str, v: int):
+    def __init__(self, full_name: str, v: float | None):
         self.full_name = full_name
         self._v = v
 

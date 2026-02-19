@@ -4,7 +4,7 @@ import os
 import sys
 import signal
 import time
-import concurrent
+import concurrent.futures
 import inspect
 from collections import defaultdict
 from typing import Dict, List
@@ -166,7 +166,10 @@ class Station:
     """
 
     def __init__(
-        self, measurement_config: dict = {}, basedir: str = None, verbose: bool = True
+        self,
+        measurement_config: dict = {},
+        basedir: str | None = None,
+        verbose: bool = True,
     ):
         """Create a Station.
         measurement_config: dict mapping hardware to measurements
@@ -188,6 +191,7 @@ class Station:
         self._run_afters = []
         self._comments = []
         self._interrupted = False
+        self.interrupt_requested = False
         self.logger.debug("Station initialized")
 
     def _init_logger(self):
@@ -776,7 +780,10 @@ class AsyncStation(Station):
     """
 
     def __init__(
-        self, measurement_config: dict = {}, basedir: str = None, verbose: bool = True
+        self,
+        measurement_config: dict = {},
+        basedir: str | None = None,
+        verbose: bool = True,
     ):
         self._ps_by_inst = defaultdict(list)
         self._gains_by_inst = defaultdict(list)

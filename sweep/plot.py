@@ -196,12 +196,15 @@ class Plotter:
     def __exit__(self, type, value, traceback):
         if len(self._plots) == 0:
             return
-        self._parent_pipe.send({"action": _Action.STOP})
-        self._proc.join()
+        if self._parent_pipe is not None:
+            self._parent_pipe.send({"action": _Action.STOP})
+        if self._proc is not None:
+            self._proc.join()
 
     def add_point(self, data):
         if len(self._plots) == 0:
             return
+        assert self._parent_pipe is not None
         self._parent_pipe.send(
             {
                 "action": _Action.ADD_POINT,
@@ -212,5 +215,6 @@ class Plotter:
     def send_image(self):
         if len(self._plots) == 0:
             return None
+        assert self._parent_pipe is not None
         self._parent_pipe.send({"action": _Action.SEND_IMAGE})
         return self._parent_pipe.recv().getbuffer()
