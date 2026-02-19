@@ -1,4 +1,7 @@
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 
 """
 TODO:
@@ -6,8 +9,17 @@ TODO:
 - Make using raterizer a bit easier somehow
 """
 
+Vertices = npt.NDArray[np.floating[Any]]
 
-def rasterize(vertices, nx, ny, fast_axis, rev_x=False, rev_y=False):
+
+def rasterize(
+    vertices: Vertices,
+    nx: int,
+    ny: int,
+    fast_axis: int,
+    rev_x: bool = False,
+    rev_y: bool = False,
+) -> tuple[npt.NDArray[np.floating[Any]], npt.NDArray[np.floating[Any]]]:
     """
     Returns the x and y coordinates of the points inside the polygon defined
     by vertices. The points are defined by nx and ny points along the x and y
@@ -36,7 +48,14 @@ def rasterize(vertices, nx, ny, fast_axis, rev_x=False, rev_y=False):
     return xs, ys
 
 
-def _bounding_mesh(vertices, nx, ny, fast_axis, rev_x=False, rev_y=False):
+def _bounding_mesh(
+    vertices: Vertices,
+    nx: int,
+    ny: int,
+    fast_axis: int,
+    rev_x: bool = False,
+    rev_y: bool = False,
+) -> tuple[npt.NDArray[np.floating[Any]], npt.NDArray[np.floating[Any]]]:
     """
     Returns a meshgrid of points defining the bounding box of the polygon
     defined by vertices. The meshgrid is defined by nx and ny points along
@@ -77,14 +96,18 @@ def _bounding_mesh(vertices, nx, ny, fast_axis, rev_x=False, rev_y=False):
     return xs_mat, ys_mat
 
 
-def _rasterized_indices(vertices, xs_mat, ys_mat):
+def _rasterized_indices(
+    vertices: Vertices,
+    xs_mat: npt.NDArray[np.floating[Any]],
+    ys_mat: npt.NDArray[np.floating[Any]],
+) -> tuple[list[int], list[int]]:
     """
     Returns the indices of the points in the meshgrid that are inside the
     polygon defined by vertices.
     """
 
-    is_raster = []
-    js_raster = []
+    is_raster: list[int] = []
+    js_raster: list[int] = []
     for i in range(len(xs_mat)):
         for j in range(len(ys_mat[i])):
             inside = _point_in_polygon((xs_mat[i, j], ys_mat[i, j]), vertices)
@@ -95,7 +118,7 @@ def _rasterized_indices(vertices, xs_mat, ys_mat):
     return is_raster, js_raster
 
 
-def _point_in_polygon(point, vertices):
+def _point_in_polygon(point: tuple[float, float], vertices: Vertices) -> bool:
     """
     Returns True if point is inside the polygon defined by vertices, False
     otherwise.
@@ -120,7 +143,7 @@ def _point_in_polygon(point, vertices):
     return inside
 
 
-def random_ngon_vertices(n):
+def random_ngon_vertices(n: int) -> Vertices:
     """
     Returns the vertices of a random n-gon.
     """
@@ -134,7 +157,19 @@ def random_ngon_vertices(n):
     return vertices
 
 
-def pcolorize_data(zs, vertices, nx, ny, fast_axis, rev_x=False, rev_y=False):
+def pcolorize_data(
+    zs: npt.NDArray[np.floating[Any]],
+    vertices: Vertices,
+    nx: int,
+    ny: int,
+    fast_axis: int,
+    rev_x: bool = False,
+    rev_y: bool = False,
+) -> tuple[
+    npt.NDArray[np.floating[Any]],
+    npt.NDArray[np.floating[Any]],
+    npt.NDArray[np.floating[Any]],
+]:
     """
     For a given data set zs for each point in the polygon defined by vertices,
     returns matricies xs_mat, ys_mat, and zs_mat that can be used to plot the

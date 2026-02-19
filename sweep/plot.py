@@ -2,7 +2,9 @@ import enum
 import io
 import math
 import multiprocessing
+import multiprocessing.connection
 import signal
+from typing import Any
 
 import numpy as np
 from scipy.interpolate import griddata
@@ -17,19 +19,25 @@ class _Action(enum.Enum):
     ADD_POINT = "add_point"
 
 
+PlotSpec = tuple[list[str], list[str], list[str]]
+DataMap = dict[str, float]
+
+
 class _PlotProc:
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
-    def start(self, plots):
+    def start(self, plots: list[PlotSpec]) -> None:
         self._plots = plots
         rows = math.ceil(len(plots) / 4)
         cols = len(plots) % 4 if len(plots) < 4 else 4
         self._fig = plt.figure(figsize=(4 * cols, 4 * rows))
         grid = plt.GridSpec(rows, cols)
-        self._lines = []
-        self._meshes = []
-        self._axs = []
+        self._lines: list[tuple[str, str, Any]] = []
+        self._meshes: list[
+            tuple[str, str, str, list[float], list[float], list[float], Any]
+        ] = []
+        self._axs: list[Any] = []
         for i, (xs, ys, zs) in enumerate(plots):
             ax = self._fig.add_subplot(grid[i // 4, i % 4])
             self._axs.append(ax)
@@ -52,10 +60,10 @@ class _PlotProc:
                 self._meshes.append((xs[0], ys[0], zs[0], [], [], [], ax))
         self._fig.show()
 
-    def stop(self):
+    def stop(self) -> None:
         plt.close(self._fig)
 
-    def add_points(self, points):
+    def add_points(self, points: list[DataMap]) -> None:
         for point in points:
             for x, y, line in self._lines:
                 if x not in point or y not in point:
@@ -96,13 +104,13 @@ class _PlotProc:
         self._fig.tight_layout()
         self._fig.canvas.draw()
 
-    def image(self):
+    def image(self) -> io.BytesIO:
         b = io.BytesIO()
         self._fig.savefig(b, format="png")
         return b
 
 
-def _plot_loop(conn):
+def _plot_loop(conn: multiprocessing.connection.Connection) -> None:
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
         matplotlib.use("Qt5Agg")
@@ -111,10 +119,10 @@ def _plot_loop(conn):
     p = _PlotProc()
     quit = False
     while not quit:
-        messages = []
+        messages: list[dict[str, Any]] = []
         while conn.poll():
             messages.append(conn.recv())
-        data = []
+        data: list[DataMap] = []
         send = False
         for m in messages:
             if m["action"] == _Action.START:
@@ -135,26 +143,27 @@ def _plot_loop(conn):
 
 
 class Plotter:
-    def __init__(self):
-        self._plots = []
-        self._proc = None
-        self._parent_pipe = None
+    def __init__(self) -> None:
+        self._plots: list[PlotSpec] = []
+        self._proc: multiprocessing.process.BaseProcess | None = None
+        self._parent_pipe: multiprocessing.connection.Connection | None = None
+        self._cols: list[str] = []
 
-    def reset_plots(self):
+    def reset_plots(self) -> None:
         self._plots = []
 
-    def plot(self, x, y, z):
-        def to_names(v):
+    def plot(self, x: Any, y: Any, z: Any) -> None:
+        def to_names(v: Any) -> list[str]:
             if v is None:
                 return []
 
-            def n(p):
+            def n(p: Any) -> str:
                 if isinstance(p, str):
                     return p
                 return p.full_name
 
             if isinstance(v, list):
-                nl = []
+                nl: list[str] = []
                 for item in v:
                     nl.append(n(item))
                 return nl
@@ -169,16 +178,16 @@ class Plotter:
             raise ValueError("can only have one z parameter")
         self._plots.append((xs, ys, zs))
 
-    def set_cols(self, cols):
+    def set_cols(self, cols: list[str]) -> None:
         self._cols = cols
 
-    def _format_data_map(self, data):
-        m = {}
+    def _format_data_map(self, data: list[float]) -> DataMap:
+        m: DataMap = {}
         for k, v in zip(self._cols, data):
             m[k] = v
         return m
 
-    def __enter__(self):
+    def __enter__(self) -> "Plotter":
         if len(self._plots) == 0:
             return self
         ctx = multiprocessing.get_context("spawn")
@@ -193,7 +202,12 @@ class Plotter:
         )
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(
+        self,
+        type: type[BaseException] | None,
+        value: BaseException | None,
+        traceback: Any,
+    ) -> None:
         if len(self._plots) == 0:
             return
         if self._parent_pipe is not None:
@@ -201,7 +215,7 @@ class Plotter:
         if self._proc is not None:
             self._proc.join()
 
-    def add_point(self, data):
+    def add_point(self, data: list[float]) -> None:
         if len(self._plots) == 0:
             return
         assert self._parent_pipe is not None
@@ -212,7 +226,7 @@ class Plotter:
             }
         )
 
-    def send_image(self):
+    def send_image(self) -> memoryview | None:
         if len(self._plots) == 0:
             return None
         assert self._parent_pipe is not None

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import csv
 import gzip
 import hashlib
@@ -5,7 +7,7 @@ import json
 import shutil
 import os
 import os.path
-from typing import Dict, List
+from typing import Any, Iterator
 
 
 def _files_equal(uncompressed: str, compressed: str) -> bool:
@@ -44,32 +46,37 @@ class Reader:
     the metadata for more intelligent retrieval later.
     """
 
-    def __init__(self, basedir: str, id: int):
+    def __init__(self, basedir: str, id: int) -> None:
         basedir = os.path.expanduser(basedir)
         self.dir: str = os.path.join(basedir, str(id))
         self.datapath: str = os.path.join(self.dir, "data.tsv.gz")
         self._data = gzip.open(self.datapath, "rt")
         with open(os.path.join(self.dir, "metadata.json")) as f:
-            self.metadata: Dict = json.load(f)
+            self.metadata: dict[str, Any] = json.load(f)
 
-    def __enter__(self):
+    def __enter__(self) -> "Reader":
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(
+        self,
+        type: type[BaseException] | None,
+        value: BaseException | None,
+        traceback: Any,
+    ) -> None:
         self._data.close()
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[list[str]]:
         self._data.seek(0)
         return csv.reader(self._data)
 
-    def all_data(self) -> List[List[str]]:
-        res = []
+    def all_data(self) -> list[list[str]]:
+        res: list[list[str]] = []
         self._data.seek(0)
         for row in csv.reader(self._data, delimiter="\t"):
             res.append(row)
         return res
 
-    def blob(self, name) -> bytes:
+    def blob(self, name: str) -> bytes:
         with open(os.path.join(self.dir, name), "rb") as f:
             return f.read()
 
@@ -100,7 +107,9 @@ class Writer:
     Either call close when complete, or else use as a context manager.
     """
 
-    def __init__(self, basedir: str, max_id: int = 1000000, fsync_every=10):
+    def __init__(
+        self, basedir: str, max_id: int = 1000000, fsync_every: int = 10
+    ) -> None:
         """Create a Writer within basedir.
 
         If it can't find a valid id <= max_id, raises RuntimeError.
@@ -129,19 +138,24 @@ class Writer:
         self._writer = csv.writer(self._data, delimiter="\t")
 
         self.metadatapath: str = os.path.join(self.dir, "metadata.json")
-        self.metadata: Dict = {}
+        self.metadata: dict[str, Any] = {}
 
         self._fsync_every = fsync_every
 
         self._last_fsync = 0
 
-    def __enter__(self):
+    def __enter__(self) -> "Writer":
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(
+        self,
+        type: type[BaseException] | None,
+        value: BaseException | None,
+        traceback: Any,
+    ) -> None:
         self.close()
 
-    def close(self):
+    def close(self) -> None:
         self.update_metadata()
 
         # Take care to flush and fsync the file before compression.
@@ -167,11 +181,11 @@ class Writer:
             pass
         self.datapath += ".gz"
 
-    def update_metadata(self):
+    def update_metadata(self) -> None:
         with open(self.metadatapath, "wt") as f:
             json.dump(self.metadata, f, indent=4)
 
-    def add_points(self, points: List[List]):
+    def add_points(self, points: list[list[Any]]) -> None:
         self._writer.writerows(points)
         self._last_fsync += len(points)
         if self._last_fsync >= self._fsync_every:
@@ -179,10 +193,10 @@ class Writer:
             self._data.flush()
             os.fsync(self._data.fileno())
 
-    def add_point(self, point: List):
+    def add_point(self, point: list[Any]) -> None:
         self.add_points([point])
 
-    def add_blob(self, name: str, data: bytes) -> str:
+    def add_blob(self, name: str, data: bytes | memoryview) -> str:
         if name in {"data.tsv", "data.tsv.gz", "metadata.json"}:
             raise ValueError(f"blob name cannot be {name}")
 

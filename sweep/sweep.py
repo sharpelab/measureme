@@ -7,7 +7,7 @@ import time
 import concurrent.futures
 import inspect
 from collections import defaultdict
-from typing import Dict, List
+from typing import Any, Callable
 
 from tqdm.auto import tqdm
 import logging
@@ -22,20 +22,20 @@ import numpy as np
 # TODO
 # down sampling measurement
 
-BASEDIR = None
+BASEDIR: str | None = None
 
 
-def set_basedir(path):
+def set_basedir(path: str) -> None:
     global BASEDIR
     BASEDIR = path
 
 
-def _sec_to_str(d):
+def _sec_to_str(d: float) -> str:
     h, m, s = int(d / 3600), int(d / 60) % 60, int(d) % 60
     return f"{h}h {m}m {s}s"
 
 
-def list_measurements(basedir=None):
+def list_measurements(basedir: str | None = None) -> None:
     global BASEDIR
     if basedir is not None:
         path = basedir
@@ -44,7 +44,7 @@ def list_measurements(basedir=None):
     else:
         path = os.getcwd()
 
-    def line(i, md):
+    def line(i: int, md: dict[str, Any]) -> str:
         data = [str(i)]
         if "start_time" in md:
             data.append(
@@ -78,7 +78,7 @@ def list_measurements(basedir=None):
     display.display_markdown("\n".join(data), raw=True)
 
 
-def measurement_info(i, basedir=None):
+def measurement_info(i: int, basedir: str | None = None) -> None:
     global BASEDIR
     if basedir is not None:
         path = basedir
@@ -87,8 +87,8 @@ def measurement_info(i, basedir=None):
     else:
         path = os.getcwd()
 
-    def format_list(lst):
-        newls = []
+    def format_list(lst: list[Any]) -> str:
+        newls: list[Any] = []
         if len(lst) > 10:
             newls = lst[:3] + ["..."] + lst[-3:]
         else:
@@ -135,19 +135,23 @@ def measurement_info(i, basedir=None):
 class SweepResult:
     basedir: str
     id: int
-    metadata: Dict
+    metadata: dict[str, Any]
     datapath: str
 
 
-def _interruptible(func):
+# Setpoints: anything with len() and iteration — list, range, ndarray
+Setpoints = list[float] | range | np.ndarray[Any, Any]
+
+
+def _interruptible(func: Callable[..., Any]) -> Callable[..., Any]:
     # We don't want to allow interrupts while communicating with
     # instruments. This checks for interrupts after measuring.
     # TODO: Allow potentially the param(setpoint) if possible.
     @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         args[0].interrupt_requested = False
 
-        def handler(signum, frame):
+        def handler(signum: int, frame: Any) -> None:
             args[0].interrupt_requested = True
 
         old_handler = signal.signal(signal.SIGINT, handler)
@@ -167,10 +171,10 @@ class Station:
 
     def __init__(
         self,
-        measurement_config: dict = {},
+        measurement_config: dict[str, str] = {},
         basedir: str | None = None,
         verbose: bool = True,
-    ):
+    ) -> None:
         """Create a Station.
         measurement_config: dict mapping hardware to measurements
         """
@@ -178,23 +182,23 @@ class Station:
         if basedir is not None:
             self._basedir: str = basedir
         elif BASEDIR is not None:
-            self._basedir: str = BASEDIR
+            self._basedir = BASEDIR
         else:
-            self._basedir: str = os.getcwd()
+            self._basedir = os.getcwd()
 
         self._verbose: bool = verbose
         self._init_logger()
-        self._params: List = []
-        self._measurement_config: dict = measurement_config
+        self._params: list[tuple[Any, float]] = []
+        self._measurement_config: dict[str, str] = measurement_config
         self._plotter = sweep.plot.Plotter()
-        self._run_befores = []
-        self._run_afters = []
-        self._comments = []
-        self._interrupted = False
-        self.interrupt_requested = False
+        self._run_befores: list[tuple[Callable[..., Any], tuple[Any, ...]]] = []
+        self._run_afters: list[tuple[Callable[..., Any], tuple[Any, ...]]] = []
+        self._comments: list[str | dict[str, Any]] = []
+        self._interrupted: bool = False
+        self.interrupt_requested: bool = False
         self.logger.debug("Station initialized")
 
-    def _init_logger(self):
+    def _init_logger(self) -> None:
         self.logger = logging.getLogger("sweep_log" + str(np.random.randint(2**31)))
         file_handler = logging.FileHandler(
             filename=os.path.join(self._basedir, "log.log")
@@ -215,13 +219,15 @@ class Station:
         self.logger.addHandler(stream_handler)
         self.logger.setLevel(logging.DEBUG)
 
-    def add_comment(self, comment: str):
+    def add_comment(self, comment: str | dict[str, Any]) -> None:
         self._comments.append(comment)
 
-    def log_comment(self, comment: str):
+    def log_comment(self, comment: str) -> None:
         self.logger.info(f"Comment: {comment}")
 
-    def register_run_before(self, fn, args):
+    def register_run_before(
+        self, fn: Callable[..., Any], args: tuple[Any, ...]
+    ) -> None:
         """
         Register a function to run before/after (see below) each measurement step.
 
@@ -257,7 +263,7 @@ class Station:
             raise TypeError("args must be a tuple, e.g. (value,)")
         self._run_befores.append((fn, args))
 
-    def _run_run_befores(self, **context):
+    def _run_run_befores(self, **context: Any) -> None:
         for fn, args in self._run_befores:
             sig = inspect.signature(fn)
 
@@ -265,12 +271,12 @@ class Station:
 
             fn(*args, **accepted)
 
-    def register_run_after(self, fn, args):
+    def register_run_after(self, fn: Callable[..., Any], args: tuple[Any, ...]) -> None:
         if not isinstance(args, tuple):
             raise TypeError("args must be a tuple, e.g. (value,)")
         self._run_afters.append((fn, args))
 
-    def _run_run_afters(self, **context):
+    def _run_run_afters(self, **context: Any) -> None:
         for fn, args in self._run_afters:
             sig = inspect.signature(fn)
 
@@ -278,36 +284,36 @@ class Station:
 
             fn(*args, **accepted)
 
-    def _measure(self) -> List[float]:
+    def _measure(self) -> list[float]:
         return [p() / gain for p, gain in self._params]
 
-    def _col_names(self) -> List[str]:
+    def _col_names(self) -> list[str]:
         return [p.full_name for p, _ in self._params]
 
-    def follow_param(self, param, gain: float = 1.0):
+    def follow_param(self, param: Any, gain: float = 1.0) -> "Station":
         self._params.append((param, gain))
         self.logger.debug(f"Follow paramter: {param.full_name}, gain: {gain}")
         return self
 
     fp = follow_param
 
-    def plot(self, x, y, z=None):
+    def plot(self, x: Any, y: Any, z: Any = None) -> None:
         self._plotter.plot(x, y, z)
 
-    def reset_plots(self):
+    def reset_plots(self) -> None:
         self._plotter.reset_plots()
 
-    def reset(self):
+    def reset(self) -> None:
         self._interrupted = False
         self.logger.debug("Reseting station")
 
-    def _check_interrupted(self):
+    def _check_interrupted(self) -> None:
         if self._interrupted:
             raise InterruptedError(
                 "Station was previously interrupted, either remake it or use station.reset()"
             )
 
-    def _interruptable_sleep(self, delay):
+    def _interruptable_sleep(self, delay: float) -> None:
         if delay <= 2:
             time.sleep(delay)
         else:
@@ -317,20 +323,20 @@ class Station:
                     break
                 time.sleep(0.1)
 
-    def ramp(self, param, setpoint):
+    def ramp(self, param: Any, setpoint: float) -> None:
         cur_value = param()
         self.logger.info(f"Ramping {param.full_name}: {cur_value} -> {setpoint}")
         param(setpoint)
 
-    def read(self, param, gain: float = 1.0):
+    def read(self, param: Any, gain: float = 1.0) -> None:
         val = param() / gain
         self.logger.info(f"Reading {param.full_name}: {val}")
 
-    def read_all(self):
+    def read_all(self) -> None:
         self.logger.info("Reading all parameters:")
         [self.read(p, gain=gain) for p, gain in self._params]
 
-    def measure(self):
+    def measure(self) -> SweepResult:
         self._check_interrupted()
         with sweep.db.Writer(self._basedir) as w:
             self.logger.info(f"Starting measure with ID {w.id}")
@@ -361,7 +367,9 @@ class Station:
         return SweepResult(self._basedir, w.id, w.metadata, w.datapath)
 
     @_interruptible
-    def watch(self, delay: float = 0.0, max_duration=None):
+    def watch(
+        self, delay: float = 0.0, max_duration: float | None = None
+    ) -> SweepResult:
         self._check_interrupted()
         with sweep.db.Writer(self._basedir) as w, self._plotter as p:
             self.logger.info(f"Starting watch with ID {w.id}")
@@ -414,7 +422,9 @@ class Station:
         return SweepResult(self._basedir, w.id, w.metadata, w.datapath)
 
     @_interruptible
-    def sweep(self, param, setpoints, delay: float = 0.0):
+    def sweep(
+        self, param: Any, setpoints: Setpoints, delay: float = 0.0
+    ) -> SweepResult:
         self._check_interrupted()
         with sweep.db.Writer(self._basedir) as w, self._plotter as p:
             self.logger.info(f"Starting sweep with ID {w.id}")
@@ -472,7 +482,12 @@ class Station:
         return SweepResult(self._basedir, w.id, w.metadata, w.datapath)
 
     @_interruptible
-    def multisweep(self, params, setpointslist, delay: float = 0.0):
+    def multisweep(
+        self,
+        params: list[Any],
+        setpointslist: list[Setpoints],
+        delay: float = 0.0,
+    ) -> SweepResult:
         self._check_interrupted()
         if not all(len(sp) == len(setpointslist[0]) for sp in setpointslist):
             raise ValueError("not all setpoint lists have same length!")
@@ -480,7 +495,7 @@ class Station:
         setpoints = [list(i) for i in zip(*setpointslist)]
         with sweep.db.Writer(self._basedir) as w, self._plotter as p:
             self.logger.info(f"Starting multisweep with ID {w.id}")
-            paramlist = []
+            paramlist: list[str] = []
             for param in params:
                 paramlist.append(param.full_name)
             self.logger.debug(f"Sweeping: {paramlist}")
@@ -542,14 +557,14 @@ class Station:
     @_interruptible
     def megasweep(
         self,
-        slow_param,
-        slow_v,
-        fast_param,
-        fast_v,
+        slow_param: Any,
+        slow_v: Setpoints,
+        fast_param: Any,
+        fast_v: Setpoints,
         slow_delay: float = 0.0,
         fast_delay: float = 0.0,
-        init_delay=True,
-    ):
+        init_delay: bool = True,
+    ) -> SweepResult:
         self._check_interrupted()
         with sweep.db.Writer(self._basedir) as w, self._plotter as p:
             self.logger.info(f"Starting megasweep with ID {w.id}")
@@ -643,14 +658,14 @@ class Station:
     @_interruptible
     def multimegasweep(
         self,
-        slow_params,
-        slow_v_list,
-        fast_params,
-        fast_v_list,
+        slow_params: list[Any],
+        slow_v_list: list[Setpoints],
+        fast_params: list[Any],
+        fast_v_list: list[Setpoints],
         slow_delay: float = 0.0,
         fast_delay: float = 0.0,
-        init_delay=True,
-    ):
+        init_delay: bool = True,
+    ) -> SweepResult:
         self._check_interrupted()
         if not all(len(sp) == len(fast_v_list[0]) for sp in fast_v_list):
             raise ValueError("not all fast axis setpoint lists have same length!")
@@ -662,11 +677,11 @@ class Station:
 
         with sweep.db.Writer(self._basedir) as w, self._plotter as p:
             self.logger.info(f"Starting multimegasweep with ID {w.id}")
-            slowparamlist = []
+            slowparamlist: list[str] = []
             for param in slow_params:
                 slowparamlist.append(param.full_name)
 
-            fastparamlist = []
+            fastparamlist: list[str] = []
             for param in fast_params:
                 fastparamlist.append(param.full_name)
 
@@ -781,16 +796,16 @@ class AsyncStation(Station):
 
     def __init__(
         self,
-        measurement_config: dict = {},
+        measurement_config: dict[str, str] = {},
         basedir: str | None = None,
         verbose: bool = True,
-    ):
-        self._ps_by_inst = defaultdict(list)
-        self._gains_by_inst = defaultdict(list)
-        self._params = []
+    ) -> None:
+        self._ps_by_inst: defaultdict[Any, list[Any]] = defaultdict(list)
+        self._gains_by_inst: defaultdict[Any, list[float]] = defaultdict(list)
+        self._params: list[tuple[Any, float]] = []
         super().__init__(measurement_config, basedir, verbose)
 
-    def follow_param(self, param, gain: float = 1.0):
+    def follow_param(self, param: Any, gain: float = 1.0) -> "AsyncStation":
         self._params.append((param, gain))
         self.logger.debug(f"Follow parameter: {param.full_name}, gain: {gain}")
         self._ps_by_inst[param.instrument].append(param)
@@ -799,18 +814,18 @@ class AsyncStation(Station):
 
     fp = follow_param
 
-    def _measure_by_inst(self, ps) -> List[float]:
+    def _measure_by_inst(self, ps: list[Any]) -> list[float]:
         return [p() for p in ps]
 
-    def _measure(self) -> List[float]:
-        futs_by_inst = {}
+    def _measure(self) -> list[float]:
+        futs_by_inst: dict[Any, concurrent.futures.Future[list[float]]] = {}
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=len(self._params)
         ) as executor:
             for i, ps in self._ps_by_inst.items():
                 futs_by_inst[i] = executor.submit(self._measure_by_inst, ps)
 
-        ret = {}
+        ret: dict[Any, float] = {}
         for future, ps in zip(futs_by_inst.values(), self._ps_by_inst.values()):
             results = future.result()
             for res, p in zip(results, ps):

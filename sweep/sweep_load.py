@@ -1,19 +1,27 @@
 import os
 import json
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 
 """
 TODO:
 - allow pload to pass metadata to pload0d, pload1d, and pload2d?
 """
 
+# Data dicts map column names to numpy arrays (or scalars for 0D),
+# plus special keys like 'measurement_config', 'xs', 'ys'.
+DataDict = dict[str, Any]
+Metadata = dict[str, Any]
 
-def load_meta(file_path: str, i: int):
-    fp = open(os.path.join(file_path, str(i), r"metadata.json"), "r")
-    return json.load(fp)
+
+def load_meta(file_path: str, i: int) -> Metadata:
+    with open(os.path.join(file_path, str(i), r"metadata.json"), "r") as fp:
+        return json.load(fp)
 
 
-def load(file_path: str, i: int):
+def load(file_path: str, i: int) -> npt.NDArray[np.floating[Any]]:
     path = os.path.join(file_path, str(i), "")
     if os.path.isfile(path + r"data.tsv.gz"):
         return np.loadtxt(path + r"data.tsv.gz")
@@ -21,7 +29,7 @@ def load(file_path: str, i: int):
         return np.loadtxt(path + r"data.tsv")
 
 
-def pload(file_path: str, i: int):
+def pload(file_path: str, i: int) -> DataDict:
     meta = load_meta(file_path, i)
     if meta["type"] == "0D":
         return pload0d(file_path, i)
@@ -29,13 +37,14 @@ def pload(file_path: str, i: int):
         return pload1d(file_path, i)
     elif meta["type"] == "2D":
         return pload2d(file_path, i)
+    raise ValueError(f"Unknown type: {meta['type']}")
 
 
-def pload0d(file_path: str, i: int):
+def pload0d(file_path: str, i: int) -> DataDict:
     data = load(file_path, i)
     meta = load_meta(file_path, i)
 
-    data_dict = {}
+    data_dict: DataDict = {}
     if "measurement_config" in meta:
         data_dict["measurement_config"] = meta["measurement_config"]
     for ind, col in enumerate(meta["columns"]):
@@ -43,11 +52,11 @@ def pload0d(file_path: str, i: int):
     return data_dict
 
 
-def pload1d(file_path: str, i: int):
+def pload1d(file_path: str, i: int) -> DataDict:
     data = load(file_path, i)
     meta = load_meta(file_path, i)
 
-    data_dict = {}
+    data_dict: DataDict = {}
     if "measurement_config" in meta:
         data_dict["measurement_config"] = meta["measurement_config"]
     if "setpoints" in meta:
@@ -57,11 +66,11 @@ def pload1d(file_path: str, i: int):
     return data_dict
 
 
-def pload2d(file_path: str, i: int, pad_nan: bool = True):
+def pload2d(file_path: str, i: int, pad_nan: bool = True) -> DataDict:
     data = load(file_path, i)
     meta = load_meta(file_path, i)
 
-    data_dict = {}
+    data_dict: DataDict = {}
     if "measurement_config" in meta:
         data_dict["measurement_config"] = meta["measurement_config"]
     data_dict["xs"] = np.array(meta["fast_setpoints"])
