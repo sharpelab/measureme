@@ -4,11 +4,12 @@ import math
 import multiprocessing
 import multiprocessing.connection
 import signal
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 from scipy.interpolate import griddata
 import matplotlib
+import matplotlib.axes
 import matplotlib.lines
 import matplotlib.pyplot as plt
 
@@ -25,6 +26,16 @@ DataMap = dict[str, float]
 LinePlot = tuple[str, str, matplotlib.lines.Line2D]
 
 
+class MeshState(NamedTuple):
+    x_name: str
+    y_name: str
+    z_name: str
+    xdata: list[float]
+    ydata: list[float]
+    zdata: list[float]
+    ax: matplotlib.axes.Axes
+
+
 class _PlotProc:
     def __init__(self) -> None:
         pass
@@ -36,10 +47,8 @@ class _PlotProc:
         self._fig = plt.figure(figsize=(4 * cols, 4 * rows))
         grid = plt.GridSpec(rows, cols)
         self._lines: list[LinePlot] = []
-        self._meshes: list[
-            tuple[str, str, str, list[float], list[float], list[float], Any]
-        ] = []
-        self._axs: list[Any] = []
+        self._meshes: list[MeshState] = []
+        self._axs: list[matplotlib.axes.Axes] = []
         for i, (xs, ys, zs) in enumerate(plots):
             ax = self._fig.add_subplot(grid[i // 4, i % 4])
             self._axs.append(ax)
@@ -59,7 +68,7 @@ class _PlotProc:
                             (x, y, ax.plot([], [], label=f"{x} - {y}")[0])
                         )
             else:
-                self._meshes.append((xs[0], ys[0], zs[0], [], [], [], ax))
+                self._meshes.append(MeshState(xs[0], ys[0], zs[0], [], [], [], ax))
         self._fig.show()
 
     def stop(self) -> None:

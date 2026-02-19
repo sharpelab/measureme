@@ -16,7 +16,9 @@ from IPython import display
 
 import sweep.db
 import sweep.plot
-from sweep.types import Comment, Parameter, ParamGain
+from qcodes.instrument import InstrumentBase
+
+from sweep.types import Comment, Hook, Parameter, ParamGain, Setpoints
 
 import numpy as np
 
@@ -188,8 +190,8 @@ class Station:
         self._params: list[ParamGain] = []
         self._measurement_config: dict[str, str] = measurement_config
         self._plotter = sweep.plot.Plotter()
-        self._run_befores: list[tuple[Callable[..., Any], tuple[Any, ...]]] = []
-        self._run_afters: list[tuple[Callable[..., Any], tuple[Any, ...]]] = []
+        self._run_befores: list[Hook] = []
+        self._run_afters: list[Hook] = []
         self._comments: list[Comment] = []
         self._interrupted: bool = False
         self.interrupt_requested: bool = False
@@ -258,7 +260,7 @@ class Station:
 
         if not isinstance(args, tuple):
             raise TypeError("args must be a tuple, e.g. (value,)")
-        self._run_befores.append((fn, args))
+        self._run_befores.append(Hook(fn, args))
 
     def _run_run_befores(self, **context: Any) -> None:
         for fn, args in self._run_befores:
@@ -271,7 +273,7 @@ class Station:
     def register_run_after(self, fn: Callable[..., Any], args: tuple[Any, ...]) -> None:
         if not isinstance(args, tuple):
             raise TypeError("args must be a tuple, e.g. (value,)")
-        self._run_afters.append((fn, args))
+        self._run_afters.append(Hook(fn, args))
 
     def _run_run_afters(self, **context: Any) -> None:
         for fn, args in self._run_afters:
@@ -420,7 +422,7 @@ class Station:
 
     @_interruptible
     def sweep(
-        self, param: Parameter, setpoints: Any, delay: float = 0.0
+        self, param: Parameter, setpoints: Setpoints, delay: float = 0.0
     ) -> SweepResult:
         self._check_interrupted()
         with sweep.db.Writer(self._basedir) as w, self._plotter as p:
@@ -482,7 +484,7 @@ class Station:
     def multisweep(
         self,
         params: list[Parameter],
-        setpointslist: list[Any],
+        setpointslist: list[Setpoints],
         delay: float = 0.0,
     ) -> SweepResult:
         self._check_interrupted()
@@ -555,9 +557,9 @@ class Station:
     def megasweep(
         self,
         slow_param: Parameter,
-        slow_v: Any,
+        slow_v: Setpoints,
         fast_param: Parameter,
-        fast_v: Any,
+        fast_v: Setpoints,
         slow_delay: float = 0.0,
         fast_delay: float = 0.0,
         init_delay: bool = True,
@@ -656,9 +658,9 @@ class Station:
     def multimegasweep(
         self,
         slow_params: list[Parameter],
-        slow_v_list: list[Any],
+        slow_v_list: list[Setpoints],
         fast_params: list[Parameter],
-        fast_v_list: list[Any],
+        fast_v_list: list[Setpoints],
         slow_delay: float = 0.0,
         fast_delay: float = 0.0,
         init_delay: bool = True,
@@ -797,8 +799,12 @@ class AsyncStation(Station):
         basedir: str | None = None,
         verbose: bool = True,
     ) -> None:
-        self._ps_by_inst: defaultdict[Any, list[Parameter]] = defaultdict(list)
-        self._gains_by_inst: defaultdict[Any, list[float]] = defaultdict(list)
+        self._ps_by_inst: defaultdict[InstrumentBase | None, list[Parameter]] = (
+            defaultdict(list)
+        )
+        self._gains_by_inst: defaultdict[InstrumentBase | None, list[float]] = (
+            defaultdict(list)
+        )
         self._params: list[ParamGain] = []
         super().__init__(measurement_config, basedir, verbose)
 
@@ -815,14 +821,16 @@ class AsyncStation(Station):
         return [p() for p in ps]
 
     def _measure(self) -> list[float]:
-        futs_by_inst: dict[Any, concurrent.futures.Future[list[float]]] = {}
+        futs_by_inst: dict[
+            InstrumentBase | None, concurrent.futures.Future[list[float]]
+        ] = {}
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=len(self._params)
         ) as executor:
             for i, ps in self._ps_by_inst.items():
                 futs_by_inst[i] = executor.submit(self._measure_by_inst, ps)
 
-        ret: dict[Any, float] = {}
+        ret: dict[Parameter, float] = {}
         for future, ps in zip(futs_by_inst.values(), self._ps_by_inst.values()):
             results = future.result()
             for res, p in zip(results, ps):
