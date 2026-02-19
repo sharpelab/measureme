@@ -8,7 +8,6 @@ import numpy as np
 import scipy
 from scipy.interpolate import griddata
 import matplotlib
-matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 
 
@@ -104,6 +103,10 @@ class _PlotProc:
 
 def _plot_loop(conn):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        matplotlib.use('Qt5Agg')
+    except ImportError:
+        matplotlib.use('Agg')
     p = _PlotProc()
     quit = False
     while not quit:

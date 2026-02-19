@@ -1,0 +1,27 @@
+[project]
+name = "sweep"
+version = "0.1"
+description = "Measurement orchestration for QCoDeS"
+authors = [
+    { name = "spxtr", email = "spxtr@stanford.edu" },
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "scipy",
+    "tqdm",
+    "ipython",
+    "qcodes",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["sweep"]
+python_files = ["*_test.py"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
