@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 from scipy.interpolate import griddata
 import matplotlib
+import matplotlib.lines
 import matplotlib.pyplot as plt
 
 
@@ -21,6 +22,7 @@ class _Action(enum.Enum):
 
 PlotSpec = tuple[list[str], list[str], list[str]]
 DataMap = dict[str, float]
+LinePlot = tuple[str, str, matplotlib.lines.Line2D]
 
 
 class _PlotProc:
@@ -33,7 +35,7 @@ class _PlotProc:
         cols = len(plots) % 4 if len(plots) < 4 else 4
         self._fig = plt.figure(figsize=(4 * cols, 4 * rows))
         grid = plt.GridSpec(rows, cols)
-        self._lines: list[tuple[str, str, Any]] = []
+        self._lines: list[LinePlot] = []
         self._meshes: list[
             tuple[str, str, str, list[float], list[float], list[float], Any]
         ] = []

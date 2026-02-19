@@ -1,56 +1,56 @@
 import tempfile
 import unittest
 
+from qcodes.instrument_drivers.mock_instruments import DummyInstrument
+
 import sweep
 import sweep.db as db
 
 
-class _DummyParam:
-    def __init__(self, full_name: str, v: float | None):
-        self.full_name = full_name
-        self._v = v
-
-    def __call__(self, sp=None):
-        if sp is None:
-            return self._v
-
-
 class TestStation(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.dir = tempfile.TemporaryDirectory()
+        self.dac = DummyInstrument("dac", gates=["ch1", "ch2", "ch3"])
 
-    def tearDown(self):
+    def tearDown(self) -> None:
+        self.dac.close()
         self.dir.cleanup()
 
-    def test_measure(self):
+    def test_measure(self) -> None:
+        self.dac.ch1(1.0)
+        self.dac.ch2(2.0)
         s = sweep.Station(basedir=self.dir.name, verbose=True)
-        s.fp(_DummyParam("p2", 1.0)).fp(_DummyParam("p3", 2.0))
+        s.fp(self.dac.ch1).fp(self.dac.ch2)
         res = s.measure()
         with db.Reader(res.basedir, res.id) as r:
             self.assertEqual(r.metadata["type"], "0D")
             self.assertEqual(r.metadata["columns"][0], "time")
-            self.assertEqual(r.metadata["columns"][1], "p2")
+            self.assertEqual(r.metadata["columns"][1], "dac_ch1")
             self.assertEqual(len(r.all_data()), 1)
             self.assertEqual(float(r.all_data()[0][1]), 1.0)
 
-    def test_sweep(self):
+    def test_sweep(self) -> None:
+        self.dac.ch2(1.0)
+        self.dac.ch3(2.0)
         s = sweep.Station(basedir=self.dir.name, verbose=True)
-        s.fp(_DummyParam("p2", 1.0)).fp(_DummyParam("p3", 2.0))
-        res = s.sweep(_DummyParam("p1", None), range(1000))
+        s.fp(self.dac.ch2).fp(self.dac.ch3)
+        res = s.sweep(self.dac.ch1, range(100))
         with db.Reader(res.basedir, res.id) as r:
             self.assertEqual(r.metadata["type"], "1D")
-            self.assertEqual(r.metadata["param"], "p1")
+            self.assertEqual(r.metadata["param"], "dac_ch1")
             self.assertEqual(r.metadata["columns"][0], "time")
-            self.assertEqual(r.metadata["columns"][1], "p1")
-            self.assertEqual(r.metadata["columns"][2], "p2")
-            self.assertEqual(r.metadata["columns"][3], "p3")
-            self.assertEqual(len(r.all_data()), 1000)
+            self.assertEqual(r.metadata["columns"][1], "dac_ch1")
+            self.assertEqual(r.metadata["columns"][2], "dac_ch2")
+            self.assertEqual(r.metadata["columns"][3], "dac_ch3")
+            self.assertEqual(len(r.all_data()), 100)
 
-    def test_sweep_plot(self):
+    def test_sweep_plot(self) -> None:
+        self.dac.ch2(1.0)
+        self.dac.ch3(2.0)
         s = sweep.Station(basedir=self.dir.name, verbose=True)
-        s.fp(_DummyParam("p2", 1.0)).fp(_DummyParam("p3", 2.0))
-        s.plot("p1", "p2")
-        res = s.sweep(_DummyParam("p1", None), range(10))
+        s.fp(self.dac.ch2).fp(self.dac.ch3)
+        s.plot("dac_ch1", "dac_ch2")
+        res = s.sweep(self.dac.ch1, range(10))
         with db.Reader(res.basedir, res.id) as r:
             self.assertEqual(len(r.all_data()), 10)
             self.assertTrue(len(r.blob("plot.png")) > 0)

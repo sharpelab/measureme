@@ -16,6 +16,7 @@ from IPython import display
 
 import sweep.db
 import sweep.plot
+from sweep.types import Comment, Parameter, ParamGain
 
 import numpy as np
 
@@ -139,10 +140,6 @@ class SweepResult:
     datapath: str
 
 
-# Setpoints: anything with len() and iteration — list, range, ndarray
-Setpoints = list[float] | range | np.ndarray[Any, Any]
-
-
 def _interruptible(func: Callable[..., Any]) -> Callable[..., Any]:
     # We don't want to allow interrupts while communicating with
     # instruments. This checks for interrupts after measuring.
@@ -188,12 +185,12 @@ class Station:
 
         self._verbose: bool = verbose
         self._init_logger()
-        self._params: list[tuple[Any, float]] = []
+        self._params: list[ParamGain] = []
         self._measurement_config: dict[str, str] = measurement_config
         self._plotter = sweep.plot.Plotter()
         self._run_befores: list[tuple[Callable[..., Any], tuple[Any, ...]]] = []
         self._run_afters: list[tuple[Callable[..., Any], tuple[Any, ...]]] = []
-        self._comments: list[str | dict[str, Any]] = []
+        self._comments: list[Comment] = []
         self._interrupted: bool = False
         self.interrupt_requested: bool = False
         self.logger.debug("Station initialized")
@@ -219,7 +216,7 @@ class Station:
         self.logger.addHandler(stream_handler)
         self.logger.setLevel(logging.DEBUG)
 
-    def add_comment(self, comment: str | dict[str, Any]) -> None:
+    def add_comment(self, comment: Comment) -> None:
         self._comments.append(comment)
 
     def log_comment(self, comment: str) -> None:
@@ -290,7 +287,7 @@ class Station:
     def _col_names(self) -> list[str]:
         return [p.full_name for p, _ in self._params]
 
-    def follow_param(self, param: Any, gain: float = 1.0) -> "Station":
+    def follow_param(self, param: Parameter, gain: float = 1.0) -> "Station":
         self._params.append((param, gain))
         self.logger.debug(f"Follow paramter: {param.full_name}, gain: {gain}")
         return self
@@ -323,12 +320,12 @@ class Station:
                     break
                 time.sleep(0.1)
 
-    def ramp(self, param: Any, setpoint: float) -> None:
+    def ramp(self, param: Parameter, setpoint: float) -> None:
         cur_value = param()
         self.logger.info(f"Ramping {param.full_name}: {cur_value} -> {setpoint}")
         param(setpoint)
 
-    def read(self, param: Any, gain: float = 1.0) -> None:
+    def read(self, param: Parameter, gain: float = 1.0) -> None:
         val = param() / gain
         self.logger.info(f"Reading {param.full_name}: {val}")
 
@@ -423,7 +420,7 @@ class Station:
 
     @_interruptible
     def sweep(
-        self, param: Any, setpoints: Setpoints, delay: float = 0.0
+        self, param: Parameter, setpoints: Any, delay: float = 0.0
     ) -> SweepResult:
         self._check_interrupted()
         with sweep.db.Writer(self._basedir) as w, self._plotter as p:
@@ -484,8 +481,8 @@ class Station:
     @_interruptible
     def multisweep(
         self,
-        params: list[Any],
-        setpointslist: list[Setpoints],
+        params: list[Parameter],
+        setpointslist: list[Any],
         delay: float = 0.0,
     ) -> SweepResult:
         self._check_interrupted()
@@ -557,10 +554,10 @@ class Station:
     @_interruptible
     def megasweep(
         self,
-        slow_param: Any,
-        slow_v: Setpoints,
-        fast_param: Any,
-        fast_v: Setpoints,
+        slow_param: Parameter,
+        slow_v: Any,
+        fast_param: Parameter,
+        fast_v: Any,
         slow_delay: float = 0.0,
         fast_delay: float = 0.0,
         init_delay: bool = True,
@@ -658,10 +655,10 @@ class Station:
     @_interruptible
     def multimegasweep(
         self,
-        slow_params: list[Any],
-        slow_v_list: list[Setpoints],
-        fast_params: list[Any],
-        fast_v_list: list[Setpoints],
+        slow_params: list[Parameter],
+        slow_v_list: list[Any],
+        fast_params: list[Parameter],
+        fast_v_list: list[Any],
         slow_delay: float = 0.0,
         fast_delay: float = 0.0,
         init_delay: bool = True,
@@ -800,12 +797,12 @@ class AsyncStation(Station):
         basedir: str | None = None,
         verbose: bool = True,
     ) -> None:
-        self._ps_by_inst: defaultdict[Any, list[Any]] = defaultdict(list)
+        self._ps_by_inst: defaultdict[Any, list[Parameter]] = defaultdict(list)
         self._gains_by_inst: defaultdict[Any, list[float]] = defaultdict(list)
-        self._params: list[tuple[Any, float]] = []
+        self._params: list[ParamGain] = []
         super().__init__(measurement_config, basedir, verbose)
 
-    def follow_param(self, param: Any, gain: float = 1.0) -> "AsyncStation":
+    def follow_param(self, param: Parameter, gain: float = 1.0) -> "AsyncStation":
         self._params.append((param, gain))
         self.logger.debug(f"Follow parameter: {param.full_name}, gain: {gain}")
         self._ps_by_inst[param.instrument].append(param)
@@ -814,7 +811,7 @@ class AsyncStation(Station):
 
     fp = follow_param
 
-    def _measure_by_inst(self, ps: list[Any]) -> list[float]:
+    def _measure_by_inst(self, ps: list[Parameter]) -> list[float]:
         return [p() for p in ps]
 
     def _measure(self) -> list[float]:
