@@ -5,23 +5,22 @@ import multiprocessing
 import signal
 
 import numpy as np
-import scipy
 from scipy.interpolate import griddata
 import matplotlib
 import matplotlib.pyplot as plt
 
 
 class _Action(enum.Enum):
-    START = 'start'
-    STOP  = 'stop'
-    SEND_IMAGE = 'send_image'
-    ADD_POINT = 'add_point'
+    START = "start"
+    STOP = "stop"
+    SEND_IMAGE = "send_image"
+    ADD_POINT = "add_point"
 
 
 class _PlotProc:
     def __init__(self):
         pass
-    
+
     def start(self, plots):
         self._plots = plots
         rows = math.ceil(len(plots) / 4)
@@ -46,14 +45,16 @@ class _PlotProc:
                         self._lines.append((xs[0], y, ax.plot([], [], label=y)[0]))
                 else:
                     for x, y in zip(xs, ys):
-                        self._lines.append((x, y, ax.plot([], [], label=f'{x} - {y}')[0]))
+                        self._lines.append(
+                            (x, y, ax.plot([], [], label=f"{x} - {y}")[0])
+                        )
             else:
                 self._meshes.append((xs[0], ys[0], zs[0], [], [], [], ax))
         self._fig.show()
-    
+
     def stop(self):
         plt.close(self._fig)
-    
+
     def add_points(self, points):
         for point in points:
             for x, y, line in self._lines:
@@ -75,7 +76,7 @@ class _PlotProc:
                 ax.clear()
                 if lx > 1 and ly > 1:
                     zi = griddata((xd, yd), zd, (X, Y))
-                    ax.pcolormesh(X, Y, zi, shading='nearest')
+                    ax.pcolormesh(X, Y, zi, shading="nearest")
                     ax.set_xlabel(x)
                     ax.set_ylabel(y)
                 elif lx == 1 and ly > 1:
@@ -94,19 +95,19 @@ class _PlotProc:
             ax.autoscale_view()
         self._fig.tight_layout()
         self._fig.canvas.draw()
-    
+
     def image(self):
         b = io.BytesIO()
-        self._fig.savefig(b, format='png')
+        self._fig.savefig(b, format="png")
         return b
 
 
 def _plot_loop(conn):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
-        matplotlib.use('Qt5Agg')
+        matplotlib.use("Qt5Agg")
     except ImportError:
-        matplotlib.use('Agg')
+        matplotlib.use("Agg")
     p = _PlotProc()
     quit = False
     while not quit:
@@ -116,14 +117,14 @@ def _plot_loop(conn):
         data = []
         send = False
         for m in messages:
-            if m['action'] == _Action.START:
-                p.start(m['plots'])
-            elif m['action'] == _Action.STOP:
+            if m["action"] == _Action.START:
+                p.start(m["plots"])
+            elif m["action"] == _Action.STOP:
                 quit = True
-            elif m['action'] == _Action.SEND_IMAGE:
+            elif m["action"] == _Action.SEND_IMAGE:
                 send = True
-            elif m['action'] == _Action.ADD_POINT:
-                data.append(m['data'])
+            elif m["action"] == _Action.ADD_POINT:
+                data.append(m["data"])
         if len(data) > 0:
             p.add_points(data)
         if send:
@@ -131,6 +132,7 @@ def _plot_loop(conn):
         if quit:
             p.stop()
         plt.pause(0.001)
+
 
 class Plotter:
     def __init__(self):
@@ -145,23 +147,26 @@ class Plotter:
         def to_names(v):
             if v is None:
                 return []
+
             def n(p):
                 if isinstance(p, str):
                     return p
                 return p.full_name
+
             if isinstance(v, list):
                 nl = []
                 for item in v:
                     nl.append(n(item))
                 return nl
             return [n(v)]
+
         xs, ys, zs = to_names(x), to_names(y), to_names(z)
         if len(xs) > 1 and len(ys) > 1 and len(xs) != len(ys):
-            raise ValueError('if multiple xs given, number must be same as ys')
+            raise ValueError("if multiple xs given, number must be same as ys")
         if len(zs) == 1 and (len(xs) > 1 or len(ys) > 1):
-            raise ValueError('2d plots can only have one x and y')
+            raise ValueError("2d plots can only have one x and y")
         if len(zs) > 1:
-            raise ValueError('can only have one z parameter')
+            raise ValueError("can only have one z parameter")
         self._plots.append((xs, ys, zs))
 
     def set_cols(self, cols):
@@ -174,31 +179,38 @@ class Plotter:
         return m
 
     def __enter__(self):
-        if len(self._plots) == 0: return self
-        ctx = multiprocessing.get_context('spawn')
+        if len(self._plots) == 0:
+            return self
+        ctx = multiprocessing.get_context("spawn")
         self._parent_pipe, child_pipe = ctx.Pipe()
         self._proc = ctx.Process(target=_plot_loop, args=(child_pipe,), daemon=True)
         self._proc.start()
-        self._parent_pipe.send({
-            'action': _Action.START,
-            'plots': self._plots,
-        })
+        self._parent_pipe.send(
+            {
+                "action": _Action.START,
+                "plots": self._plots,
+            }
+        )
         return self
 
     def __exit__(self, type, value, traceback):
         if len(self._plots) == 0:
             return
-        self._parent_pipe.send({'action': _Action.STOP})
+        self._parent_pipe.send({"action": _Action.STOP})
         self._proc.join()
 
     def add_point(self, data):
-        if len(self._plots) == 0: return
-        self._parent_pipe.send({
-            'action': _Action.ADD_POINT,
-            'data': self._format_data_map(data),
-        })
+        if len(self._plots) == 0:
+            return
+        self._parent_pipe.send(
+            {
+                "action": _Action.ADD_POINT,
+                "data": self._format_data_map(data),
+            }
+        )
 
     def send_image(self):
-        if len(self._plots) == 0: return None
-        self._parent_pipe.send({'action': _Action.SEND_IMAGE})
+        if len(self._plots) == 0:
+            return None
+        self._parent_pipe.send({"action": _Action.SEND_IMAGE})
         return self._parent_pipe.recv().getbuffer()

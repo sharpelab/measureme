@@ -1,1 +1,1 @@
-from .sweep import *
+from .sweep import *  # noqa: F403
