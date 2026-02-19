@@ -18,7 +18,21 @@ import sweep.db
 import sweep.plot
 from qcodes.instrument import InstrumentBase
 
-from sweep.types import Comment, Hook, Metadata, Parameter, ParamGain, Setpoints
+from typing import cast
+
+from sweep.types import (
+    Comment,
+    Hook,
+    MegasweepMetadata,
+    Metadata,
+    MultimegasweepMetadata,
+    MultisweepMetadata,
+    Parameter,
+    ParamGain,
+    Setpoints,
+    SweepMetadata,
+    WatchMetadata,
+)
 
 import numpy as np
 
@@ -49,21 +63,30 @@ def list_measurements(basedir: str | None = None) -> None:
 
     def line(i: int, md: Metadata) -> str:
         data = [str(i)]
-        if "start_time" in md:
-            data.append(
-                time.strftime("%Y-%b-%d %H:%M:%S", time.localtime(md["start_time"]))
-            )
-        else:
-            data.append("")
-        if "start_time" in md and "end_time" in md:
-            data.append(_sec_to_str(md["end_time"] - md["start_time"]))
-        else:
-            data.append("")
+        data.append(
+            time.strftime("%Y-%b-%d %H:%M:%S", time.localtime(md["start_time"]))
+        )
+        data.append(_sec_to_str(md["end_time"] - md["start_time"]))
         data.append(md["type"])
         data.append("yes" if md["interrupted"] else "")
-        data.append(md["param"] if "param" in md else "")
-        data.append(md["slow_param"] if "slow_param" in md else "")
-        data.append(md["fast_param"] if "fast_param" in md else "")
+        fn = md["function"]
+        if fn == "sweep":
+            data.append(cast(SweepMetadata, md)["param"])
+        elif fn == "multisweep":
+            data.append(", ".join(cast(MultisweepMetadata, md)["params"]))
+        else:
+            data.append("")
+        if fn == "megasweep":
+            m = cast(MegasweepMetadata, md)
+            data.append(m["slow_param"])
+            data.append(m["fast_param"])
+        elif fn == "multimegasweep":
+            m = cast(MultimegasweepMetadata, md)
+            data.append(", ".join(m["slow_params"]))
+            data.append(", ".join(m["fast_params"]))
+        else:
+            data.append("")
+            data.append("")
         return "|" + "|".join(data) + "|"
 
     data = [
@@ -102,36 +125,44 @@ def measurement_info(i: int, basedir: str | None = None) -> None:
         print("ID:", i)
         print("Data path:", r.datapath)
         md = r.metadata
-        if "comments" in md:
-            print("Comments:", md["comments"])
-        if "start_time" in md:
-            print(
-                "Start time:",
-                time.strftime("%Y-%b-%d %H:%M:%S", time.localtime(md["start_time"])),
-            )
-        if "start_time" in md and "end_time" in md:
-            print("Duration:", _sec_to_str(md["end_time"] - md["start_time"]))
+        print("Comments:", md["comments"])
+        print(
+            "Start time:",
+            time.strftime("%Y-%b-%d %H:%M:%S", time.localtime(md["start_time"])),
+        )
+        print("Duration:", _sec_to_str(md["end_time"] - md["start_time"]))
         print("Type:", md["type"])
         print("Interrupted:", "yes" if md["interrupted"] else "no")
-        if "param" in md:
-            print("Param:", md["param"])
-        if "slow_param" in md:
-            print("Slow param:", md["slow_param"])
-        if "fast_param" in md:
-            print("Fast param:", md["slow_param"])
-        if "delay" in md:
-            print("Delay:", md["delay"])
-        if "fast_delay" in md:
-            print("Fast delay:", md["fast_delay"])
-        if "slow_delay" in md:
-            print("Slow delay:", md["slow_delay"])
+        fn = md["function"]
+        if fn == "sweep":
+            m = cast(SweepMetadata, md)
+            print("Param:", m["param"])
+            print("Delay:", m["delay"])
+            print("Setpoints:", format_list(m["setpoints"]))
+        elif fn == "multisweep":
+            m = cast(MultisweepMetadata, md)
+            print("Params:", m["params"])
+            print("Delay:", m["delay"])
+            print("Setpoints:", format_list(m["setpoints"]))
+        elif fn == "megasweep":
+            m = cast(MegasweepMetadata, md)
+            print("Slow param:", m["slow_param"])
+            print("Fast param:", m["fast_param"])
+            print("Slow delay:", m["slow_delay"])
+            print("Fast delay:", m["fast_delay"])
+            print("Slow setpoints:", format_list(m["slow_setpoints"]))
+            print("Fast setpoints:", format_list(m["fast_setpoints"]))
+        elif fn == "multimegasweep":
+            m = cast(MultimegasweepMetadata, md)
+            print("Slow params:", m["slow_params"])
+            print("Fast params:", m["fast_params"])
+            print("Slow delay:", m["slow_delay"])
+            print("Fast delay:", m["fast_delay"])
+            print("Slow setpoints:", format_list(m["slow_setpoints"]))
+            print("Fast setpoints:", format_list(m["fast_setpoints"]))
+        elif fn == "watch":
+            print("Delay:", cast(WatchMetadata, md)["delay"])
         print("Columns:", ", ".join(md["columns"]))
-        if "setpoints" in md:
-            print("Setpoints:", format_list(md["setpoints"]))
-        if "slow_setpoints" in md:
-            print("Slow setpoints:", format_list(md["slow_setpoints"]))
-        if "fast_setpoints" in md:
-            print("Fast setpoints:", format_list(md["fast_setpoints"]))
 
 
 @dataclasses.dataclass(repr=False)
@@ -339,13 +370,14 @@ class Station:
         self._check_interrupted()
         with sweep.db.Writer(self._basedir) as w:
             self.logger.info(f"Starting measure with ID {w.id}")
+            w.metadata["version"] = 2
             w.metadata["comments"] = self._comments
             w.metadata["type"] = "0D"
             w.metadata["function"] = "measure"
             w.metadata["columns"] = ["time"] + self._col_names()
             w.metadata["measurement_config"] = self._measurement_config
-            t = time.time()
-            w.metadata["time"] = t
+            w.metadata["interrupted"] = False
+            w.metadata["start_time"] = time.time()
             w.update_metadata()
 
             self._run_run_befores(
@@ -362,8 +394,10 @@ class Station:
                 writer=w,
             )
 
+            w.metadata["end_time"] = time.time()
+
         self.logger.info(f"Data saved in {w.datapath}")
-        return SweepResult(self._basedir, w.id, w.metadata, w.datapath)
+        return SweepResult(self._basedir, w.id, cast(Metadata, w.metadata), w.datapath)
 
     @_interruptible
     def watch(
@@ -372,6 +406,7 @@ class Station:
         self._check_interrupted()
         with sweep.db.Writer(self._basedir) as w, self._plotter as p:
             self.logger.info(f"Starting watch with ID {w.id}")
+            w.metadata["version"] = 2
             w.metadata["comments"] = self._comments
             w.metadata["type"] = "1D"
             w.metadata["function"] = "watch"
@@ -418,7 +453,7 @@ class Station:
         self.logger.info(f"Completed in {_sec_to_str(duration)}")
         self.logger.info(f"Data saved in {w.datapath}")
 
-        return SweepResult(self._basedir, w.id, w.metadata, w.datapath)
+        return SweepResult(self._basedir, w.id, cast(Metadata, w.metadata), w.datapath)
 
     @_interruptible
     def sweep(
@@ -430,6 +465,7 @@ class Station:
             self.logger.debug(f"Sweeping: {param.full_name}")
             self.logger.info(f"Minimum duration {_sec_to_str(len(setpoints) * delay)}")
 
+            w.metadata["version"] = 2
             w.metadata["comments"] = self._comments
             w.metadata["type"] = "1D"
             w.metadata["function"] = "sweep"
@@ -478,7 +514,7 @@ class Station:
         self.logger.info(f"Completed in {_sec_to_str(duration)}")
         self.logger.info(f"Data saved in {w.datapath}")
 
-        return SweepResult(self._basedir, w.id, w.metadata, w.datapath)
+        return SweepResult(self._basedir, w.id, cast(Metadata, w.metadata), w.datapath)
 
     @_interruptible
     def multisweep(
@@ -500,11 +536,12 @@ class Station:
             self.logger.debug(f"Sweeping: {paramlist}")
             self.logger.info(f"Minimum duration {_sec_to_str(len(setpoints) * delay)}")
 
+            w.metadata["version"] = 2
             w.metadata["comments"] = self._comments
             w.metadata["type"] = "1D"
             w.metadata["function"] = "multisweep"
             w.metadata["delay"] = delay
-            w.metadata["param"] = paramlist
+            w.metadata["params"] = paramlist
             w.metadata["columns"] = (
                 ["time"] + [param for param in paramlist] + self._col_names()
             )
@@ -551,7 +588,7 @@ class Station:
         self.logger.info(f"Completed in {_sec_to_str(duration)}")
         self.logger.info(f"Data saved in {w.datapath}")
 
-        return SweepResult(self._basedir, w.id, w.metadata, w.datapath)
+        return SweepResult(self._basedir, w.id, cast(Metadata, w.metadata), w.datapath)
 
     @_interruptible
     def megasweep(
@@ -575,6 +612,7 @@ class Station:
             )
             self.logger.info(f"Minimum duration {_sec_to_str(min_duration)}")
 
+            w.metadata["version"] = 2
             w.metadata["comments"] = self._comments
             w.metadata["type"] = "2D"
             w.metadata["function"] = "megasweep"
@@ -652,7 +690,7 @@ class Station:
         self.logger.info(f"Completed in {_sec_to_str(duration)}")
         self.logger.info(f"Data saved in {w.datapath}")
 
-        return SweepResult(self._basedir, w.id, w.metadata, w.datapath)
+        return SweepResult(self._basedir, w.id, cast(Metadata, w.metadata), w.datapath)
 
     @_interruptible
     def multimegasweep(
@@ -690,13 +728,14 @@ class Station:
             )
             self.logger.info(f"Minimum duration {_sec_to_str(min_duration)}")
 
+            w.metadata["version"] = 2
             w.metadata["comments"] = self._comments
             w.metadata["type"] = "2D"
             w.metadata["function"] = "multimegasweep"
             w.metadata["slow_delay"] = slow_delay
             w.metadata["fast_delay"] = fast_delay
-            w.metadata["slow_param"] = slowparamlist
-            w.metadata["fast_param"] = fastparamlist
+            w.metadata["slow_params"] = slowparamlist
+            w.metadata["fast_params"] = fastparamlist
             w.metadata["columns"] = (
                 ["time"]
                 + [param for param in slowparamlist]
@@ -770,7 +809,7 @@ class Station:
         self.logger.info(f"Completed in {_sec_to_str(duration)}")
         self.logger.info(f"Data saved in {w.datapath}")
 
-        return SweepResult(self._basedir, w.id, w.metadata, w.datapath)
+        return SweepResult(self._basedir, w.id, cast(Metadata, w.metadata), w.datapath)
 
 
 class AsyncStation(Station):

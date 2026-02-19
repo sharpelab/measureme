@@ -9,7 +9,7 @@ import os
 import os.path
 from typing import Any, Iterator
 
-from sweep.types import Metadata
+from sweep.types import Metadata, migrate_metadata
 
 
 def _files_equal(uncompressed: str, compressed: str) -> bool:
@@ -54,7 +54,7 @@ class Reader:
         self.datapath: str = os.path.join(self.dir, "data.tsv.gz")
         self._data = gzip.open(self.datapath, "rt")
         with open(os.path.join(self.dir, "metadata.json")) as f:
-            self.metadata: Metadata = json.load(f)
+            self.metadata: Metadata = migrate_metadata(json.load(f))
 
     def __enter__(self) -> "Reader":
         return self
@@ -140,7 +140,7 @@ class Writer:
         self._writer = csv.writer(self._data, delimiter="\t")
 
         self.metadatapath: str = os.path.join(self.dir, "metadata.json")
-        self.metadata: Metadata = {}
+        self.metadata: dict[str, Any] = {}
 
         self._fsync_every = fsync_every
 

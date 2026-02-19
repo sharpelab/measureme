@@ -5,7 +5,16 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from sweep.types import Metadata
+from typing import cast
+
+from sweep.types import (
+    MegasweepMetadata,
+    Metadata,
+    MultimegasweepMetadata,
+    SweepMetadata,
+    MultisweepMetadata,
+    migrate_metadata,
+)
 
 """
 TODO:
@@ -19,7 +28,7 @@ DataDict = dict[str, Any]
 
 def load_meta(file_path: str, i: int) -> Metadata:
     with open(os.path.join(file_path, str(i), r"metadata.json"), "r") as fp:
-        return json.load(fp)
+        return migrate_metadata(json.load(fp))
 
 
 def load(file_path: str, i: int) -> npt.NDArray[np.floating[Any]]:
@@ -55,7 +64,7 @@ def pload0d(file_path: str, i: int) -> DataDict:
 
 def pload1d(file_path: str, i: int) -> DataDict:
     data = load(file_path, i)
-    meta = load_meta(file_path, i)
+    meta = cast(SweepMetadata | MultisweepMetadata, load_meta(file_path, i))
 
     data_dict: DataDict = {}
     if "measurement_config" in meta:
@@ -69,7 +78,7 @@ def pload1d(file_path: str, i: int) -> DataDict:
 
 def pload2d(file_path: str, i: int, pad_nan: bool = True) -> DataDict:
     data = load(file_path, i)
-    meta = load_meta(file_path, i)
+    meta = cast(MegasweepMetadata | MultimegasweepMetadata, load_meta(file_path, i))
 
     data_dict: DataDict = {}
     if "measurement_config" in meta:

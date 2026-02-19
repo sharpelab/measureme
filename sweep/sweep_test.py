@@ -1,10 +1,12 @@
 import tempfile
 import unittest
+from typing import cast
 
 from qcodes.instrument_drivers.mock_instruments import DummyInstrument
 
 import sweep
 import sweep.db as db
+from sweep.types import SweepMetadata
 
 
 class TestStation(unittest.TestCase):
@@ -36,12 +38,13 @@ class TestStation(unittest.TestCase):
         s.fp(self.dac.ch2).fp(self.dac.ch3)
         res = s.sweep(self.dac.ch1, range(100))
         with db.Reader(res.basedir, res.id) as r:
-            self.assertEqual(r.metadata["type"], "1D")
-            self.assertEqual(r.metadata["param"], "dac_ch1")
-            self.assertEqual(r.metadata["columns"][0], "time")
-            self.assertEqual(r.metadata["columns"][1], "dac_ch1")
-            self.assertEqual(r.metadata["columns"][2], "dac_ch2")
-            self.assertEqual(r.metadata["columns"][3], "dac_ch3")
+            md = cast(SweepMetadata, r.metadata)
+            self.assertEqual(md["type"], "1D")
+            self.assertEqual(md["param"], "dac_ch1")
+            self.assertEqual(md["columns"][0], "time")
+            self.assertEqual(md["columns"][1], "dac_ch1")
+            self.assertEqual(md["columns"][2], "dac_ch2")
+            self.assertEqual(md["columns"][3], "dac_ch3")
             self.assertEqual(len(r.all_data()), 100)
 
     def test_sweep_plot(self) -> None:
