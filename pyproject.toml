@@ -24,7 +24,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["sweep"]
+testpaths = ["sweep", "sharpelab_nb"]
 python_files = ["*_test.py"]
 
 [build-system]
