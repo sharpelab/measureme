@@ -9,6 +9,8 @@ import os
 import os.path
 from typing import Any, Iterator
 
+from sweep.types import Metadata
+
 
 def _files_equal(uncompressed: str, compressed: str) -> bool:
     BUF_SIZE = 65536
@@ -52,7 +54,7 @@ class Reader:
         self.datapath: str = os.path.join(self.dir, "data.tsv.gz")
         self._data = gzip.open(self.datapath, "rt")
         with open(os.path.join(self.dir, "metadata.json")) as f:
-            self.metadata: dict[str, Any] = json.load(f)
+            self.metadata: Metadata = json.load(f)
 
     def __enter__(self) -> "Reader":
         return self
@@ -138,7 +140,7 @@ class Writer:
         self._writer = csv.writer(self._data, delimiter="\t")
 
         self.metadatapath: str = os.path.join(self.dir, "metadata.json")
-        self.metadata: dict[str, Any] = {}
+        self.metadata: Metadata = {}
 
         self._fsync_every = fsync_every
 

@@ -18,7 +18,7 @@ import sweep.db
 import sweep.plot
 from qcodes.instrument import InstrumentBase
 
-from sweep.types import Comment, Hook, Parameter, ParamGain, Setpoints
+from sweep.types import Comment, Hook, Metadata, Parameter, ParamGain, Setpoints
 
 import numpy as np
 
@@ -47,7 +47,7 @@ def list_measurements(basedir: str | None = None) -> None:
     else:
         path = os.getcwd()
 
-    def line(i: int, md: dict[str, Any]) -> str:
+    def line(i: int, md: Metadata) -> str:
         data = [str(i)]
         if "start_time" in md:
             data.append(
@@ -138,7 +138,7 @@ def measurement_info(i: int, basedir: str | None = None) -> None:
 class SweepResult:
     basedir: str
     id: int
-    metadata: dict[str, Any]
+    metadata: Metadata
     datapath: str
 
 

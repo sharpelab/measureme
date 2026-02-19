@@ -26,7 +26,7 @@ class TestReaderWriter(unittest.TestCase):
         with db.Writer(self.dir.name) as w:
             w.add_point([0])
             w.add_point([1, "foo"])
-            w.metadata["foo"] = "bar"
+            w.metadata["type"] = "0D"
             w.add_blob("foo.dat", b"bar")
 
         with db.Reader(self.dir.name, w.id) as r:
@@ -42,7 +42,7 @@ class TestReaderWriter(unittest.TestCase):
             self.assertEqual(r.all_data()[1][0], "1")
             self.assertEqual(r.all_data()[1][1], "foo")
 
-            self.assertEqual(r.metadata["foo"], "bar")
+            self.assertEqual(r.metadata["type"], "0D")
             self.assertEqual(r.blob("foo.dat"), b"bar")
 
             for i, line in enumerate(r):
@@ -73,12 +73,13 @@ class TestReaderWriter(unittest.TestCase):
 
     def test_metadata(self):
         with db.Writer(self.dir.name) as w:
-            w.metadata["foo"] = "bar"
+            w.metadata["type"] = "1D"
+            w.metadata["columns"] = ["time", "voltage"]
 
         with open(w.metadatapath) as f:
             dat = json.load(f)
-        self.assertIn("foo", dat)
-        self.assertEqual(dat["foo"], "bar")
+        self.assertEqual(dat["type"], "1D")
+        self.assertEqual(dat["columns"], ["time", "voltage"])
 
     def test_add_blob(self):
         with db.Writer(self.dir.name) as w:

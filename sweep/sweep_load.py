@@ -5,6 +5,8 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from sweep.types import Metadata
+
 """
 TODO:
 - allow pload to pass metadata to pload0d, pload1d, and pload2d?
@@ -13,7 +15,6 @@ TODO:
 # Data dicts map column names to numpy arrays (or scalars for 0D),
 # plus special keys like 'measurement_config', 'xs', 'ys'.
 DataDict = dict[str, Any]
-Metadata = dict[str, Any]
 
 
 def load_meta(file_path: str, i: int) -> Metadata:
