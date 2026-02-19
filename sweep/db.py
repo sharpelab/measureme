@@ -9,7 +9,8 @@ import os
 import os.path
 from typing import Any, Iterator
 
-from sweep.types import Metadata, migrate_metadata
+from sweep.sweep_load import migrate_metadata
+from sweep.types import Metadata
 
 
 def _files_equal(uncompressed: str, compressed: str) -> bool:

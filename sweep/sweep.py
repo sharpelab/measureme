@@ -320,6 +320,21 @@ class Station:
     def _col_names(self) -> list[str]:
         return [p.full_name for p, _ in self._params]
 
+    def _instruments(self) -> dict[str, Any]:
+        instruments: dict[str, Any] = {}
+        for p, gain in self._params:
+            inst = p.instrument
+            if inst is None:
+                continue
+            name = inst.name
+            if name not in instruments:
+                instruments[name] = {
+                    "snapshot": inst.snapshot(),
+                    "parameters": {},
+                }
+            instruments[name]["parameters"][p.full_name] = {"gain": gain}
+        return instruments
+
     def follow_param(self, param: Parameter, gain: float = 1.0) -> "Station":
         self._params.append((param, gain))
         self.logger.debug(f"Follow paramter: {param.full_name}, gain: {gain}")
@@ -376,6 +391,7 @@ class Station:
             w.metadata["function"] = "measure"
             w.metadata["columns"] = ["time"] + self._col_names()
             w.metadata["measurement_config"] = self._measurement_config
+            w.metadata["instruments"] = self._instruments()
             w.metadata["interrupted"] = False
             w.metadata["start_time"] = time.time()
             w.update_metadata()
@@ -414,6 +430,7 @@ class Station:
             w.metadata["max_duration"] = max_duration
             w.metadata["columns"] = ["time"] + self._col_names()
             w.metadata["measurement_config"] = self._measurement_config
+            w.metadata["instruments"] = self._instruments()
             w.metadata["interrupted"] = False
             w.metadata["start_time"] = time.time()
             p.set_cols(w.metadata["columns"])
@@ -473,6 +490,7 @@ class Station:
             w.metadata["param"] = param.full_name
             w.metadata["columns"] = ["time", param.full_name] + self._col_names()
             w.metadata["measurement_config"] = self._measurement_config
+            w.metadata["instruments"] = self._instruments()
             w.metadata["setpoints"] = list(setpoints)
             w.metadata["interrupted"] = False
             w.metadata["start_time"] = time.time()
@@ -546,6 +564,7 @@ class Station:
                 ["time"] + [param for param in paramlist] + self._col_names()
             )
             w.metadata["measurement_config"] = self._measurement_config
+            w.metadata["instruments"] = self._instruments()
             w.metadata["setpoints"] = [list(sps) for sps in setpointslist]
             w.metadata["interrupted"] = False
             w.metadata["start_time"] = time.time()
@@ -626,6 +645,7 @@ class Station:
                 fast_param.full_name,
             ] + self._col_names()
             w.metadata["measurement_config"] = self._measurement_config
+            w.metadata["instruments"] = self._instruments()
             w.metadata["slow_setpoints"] = list(slow_v)
             w.metadata["fast_setpoints"] = list(fast_v)
             w.metadata["interrupted"] = False
@@ -743,6 +763,7 @@ class Station:
                 + self._col_names()
             )
             w.metadata["measurement_config"] = self._measurement_config
+            w.metadata["instruments"] = self._instruments()
             w.metadata["slow_setpoints"] = [list(sps) for sps in slow_v_list]
             w.metadata["fast_setpoints"] = [list(sps) for sps in fast_v_list]
             w.metadata["interrupted"] = False

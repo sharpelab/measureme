@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Any, Callable, Literal, NamedTuple, TypedDict, cast
+from typing import Any, Callable, Literal, NamedTuple, TypedDict
 
 import numpy as np
 from qcodes.parameters import Parameter
@@ -28,7 +28,8 @@ class _BaseMetadata(TypedDict):
     version: int
     comments: list[Comment]
     columns: list[str]
-    measurement_config: dict[str, str]
+    measurement_config: dict[str, Any]
+    instruments: dict[str, Any]
     interrupted: bool
     start_time: float
     end_time: float
@@ -92,28 +93,3 @@ Metadata = (
     | MegasweepMetadata
     | MultimegasweepMetadata
 )
-
-
-def migrate_metadata(raw: dict[str, Any]) -> Metadata:
-    """Migrate v1 metadata to v2. V2 passes through unchanged."""
-    if raw.get("version", 0) >= 2:
-        return cast(Metadata, raw)
-
-    raw["version"] = 2
-    fn = raw.get("function")
-
-    if fn == "measure":
-        t = raw.pop("time", 0.0)
-        raw.setdefault("start_time", t)
-        raw.setdefault("end_time", t)
-        raw.setdefault("interrupted", False)
-    elif fn == "multisweep":
-        if "param" in raw:
-            raw["params"] = raw.pop("param")
-    elif fn == "multimegasweep":
-        if "slow_param" in raw:
-            raw["slow_params"] = raw.pop("slow_param")
-        if "fast_param" in raw:
-            raw["fast_params"] = raw.pop("fast_param")
-
-    return cast(Metadata, raw)
