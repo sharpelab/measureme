@@ -1,5 +1,14 @@
 from collections.abc import Sequence
-from typing import Any, Callable, Final, Literal, NamedTuple, TypedDict
+from typing import (
+    Any,
+    Callable,
+    Final,
+    Literal,
+    NamedTuple,
+    Protocol,
+    TypedDict,
+    runtime_checkable,
+)
 
 import numpy as np
 from qcodes.parameters import Parameter
@@ -15,6 +24,24 @@ ParamGain = tuple[Parameter, float]
 
 # A sequence of numeric setpoints (list, range, np.ndarray, etc.)
 Setpoints = Sequence[float] | np.ndarray
+
+
+@runtime_checkable
+class SnapReadable(Protocol):
+    """Instrument supporting SNAP?-style coherent batch reads (e.g. SR830)."""
+
+    SNAP_PARAMETERS: dict[str, str]
+
+    def snap(self, *names: str) -> tuple[float, ...]: ...
+
+
+@runtime_checkable
+class BatchReadable(Protocol):
+    """Instrument supporting get_values()-style batch reads (e.g. SR86x)."""
+
+    PARAMETER_NAMES: dict[str, str]
+
+    def get_values(self, *names: str) -> tuple[float, ...]: ...
 
 
 class Hook(NamedTuple):

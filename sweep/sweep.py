@@ -24,6 +24,7 @@ from typing import cast
 
 from sweep.types import (
     METADATA_VERSION,
+    BatchReadable,
     Comment,
     Hook,
     MegasweepMetadata,
@@ -33,6 +34,7 @@ from sweep.types import (
     Parameter,
     ParamGain,
     Setpoints,
+    SnapReadable,
     SweepMetadata,
     WatchMetadata,
 )
@@ -913,18 +915,16 @@ class AsyncStation(Station):
         if inst is None:
             return None
 
-        # SR830-style: snap() with SNAP_PARAMETERS (case-insensitive, 2-6 params)
-        snap_params: dict[str, str] | None = getattr(inst, "SNAP_PARAMETERS", None)
-        if snap_params is not None and hasattr(inst, "snap") and len(ps) <= 6:
-            names = [p.name for p in ps]
-            if all(n.lower() in snap_params for n in names):
+        names = [p.name for p in ps]
+
+        # SR830-style: SNAP? (case-insensitive, 2-6 params)
+        if isinstance(inst, SnapReadable) and len(ps) <= 6:
+            if all(n.lower() in inst.SNAP_PARAMETERS for n in names):
                 return list(inst.snap(*names))
 
-        # SR86x-style: get_values() with PARAMETER_NAMES (case-sensitive, 2-3 params)
-        param_names: dict[str, str] | None = getattr(inst, "PARAMETER_NAMES", None)
-        if param_names is not None and hasattr(inst, "get_values") and len(ps) <= 3:
-            names = [p.name for p in ps]
-            if all(n in param_names for n in names):
+        # SR86x-style: get_values (case-sensitive, 2-3 params)
+        if isinstance(inst, BatchReadable) and len(ps) <= 3:
+            if all(n in inst.PARAMETER_NAMES for n in names):
                 return list(inst.get_values(*names))
 
         return None
