@@ -206,7 +206,7 @@ class Station:
 
     def __init__(
         self,
-        measurement_config: dict[str, str] = {},
+        measurement_config: dict[str, str] | None = None,
         basedir: str | None = None,
         verbose: bool = True,
     ) -> None:
@@ -224,7 +224,7 @@ class Station:
         self._verbose: bool = verbose
         self._init_logger()
         self._params: list[ParamGain] = []
-        self._measurement_config: dict[str, str] = measurement_config
+        self._measurement_config: dict[str, str] = measurement_config or {}
         self._plotter = sweep.plot.Plotter()
         self._run_befores: list[Hook] = []
         self._run_afters: list[Hook] = []
@@ -866,7 +866,7 @@ class AsyncStation(Station):
 
     def __init__(
         self,
-        measurement_config: dict[str, str] = {},
+        measurement_config: dict[str, str] | None = None,
         basedir: str | None = None,
         verbose: bool = True,
     ) -> None:
