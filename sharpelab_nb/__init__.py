@@ -2,6 +2,9 @@ from sharpelab_nb.autorange import autorange_sr830s as autorange_sr830s
 from sharpelab_nb.plotting import GatemapPlotResult as GatemapPlotResult
 from sharpelab_nb.plotting import SweepPlotResult as SweepPlotResult
 from sharpelab_nb.plotting import plot_gatemap as plot_gatemap
+from sharpelab_nb.plotting import plot_hysteresis as plot_hysteresis
+from sharpelab_nb.plotting import plot_leakage as plot_leakage
+from sharpelab_nb.plotting import plot_raster_preview as plot_raster_preview
 from sharpelab_nb.plotting import plot_sweep as plot_sweep
 from sharpelab_nb.config import (
     build_measurement_config as build_measurement_config,

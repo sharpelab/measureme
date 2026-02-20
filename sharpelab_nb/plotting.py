@@ -7,10 +7,12 @@ import matplotlib.figure
 import matplotlib.axes
 import matplotlib.collections
 import numpy as np
+import numpy.typing as npt
 
 import sweep.sweep_load as sl
+from sweep.raster import rasterize
 from sharpelab_nb.config import get_contact_pairs
-from sharpelab_nb.gates import calculate_n_D
+from sharpelab_nb.gates import calculate_gate_voltages, calculate_n_D
 from sharpelab_nb.models import ContactPair, label_for_role
 
 
@@ -359,3 +361,159 @@ def plot_gatemap(
             result.panels[(role, ch)] = (fig, ax, mesh)
 
     return result
+
+
+def plot_hysteresis(
+    file_path: str,
+    file: int,
+    contact_pairs: dict[str, ContactPair] | None = None,
+    *,
+    log: bool = False,
+    current_mask: float = 0.0,
+    figsize: tuple[float, float] = (16.18, 5),
+) -> SweepPlotResult:
+    """Plot a forward/backward sweep pair to check for hysteresis.
+
+    Loads ``file`` and ``file + 1`` (the forward and backward traces)
+    and overlays them using :func:`plot_sweep`.
+
+    Args:
+        file_path: Base directory containing measurement data.
+        file: Run ID of the forward sweep. The backward sweep is ``file + 1``.
+        contact_pairs: Role -> ContactPair mapping. If None, extracted
+            from the first file's metadata.
+        log: If True, use semilogy for the value panel.
+        current_mask: Mask out points where |I| < current_mask * max(|I|).
+        figsize: Figure size (width, height).
+
+    Returns:
+        SweepPlotResult with both traces overlaid.
+    """
+    return plot_sweep(
+        file_path,
+        [file, file + 1],
+        contact_pairs,
+        log=log,
+        current_mask=current_mask,
+        figsize=figsize,
+    )
+
+
+def plot_raster_preview(
+    vertices: npt.NDArray[np.floating[Any]],
+    nx: int,
+    ny: int,
+    fast_axis: int = 0,
+    rev_x: bool = False,
+    rev_y: bool = False,
+    *,
+    nD: bool = False,
+    dtg: float = 16,
+    dbg: float = 25.5,
+    ep: float = 3,
+    figsize: tuple[float, float] = (14, 5),
+) -> matplotlib.figure.Figure:
+    """Preview the raster sweep path before measurement.
+
+    Rasterizes the polygon defined by *vertices* and plots the sweep
+    points colored by measurement order.
+
+    When ``nD=True``, vertices are interpreted as (n, D) coordinates.
+    A second panel shows the corresponding (Vtg, Vbg) gate voltages.
+
+    Args:
+        vertices: Shape (N, 2) array of polygon vertices.
+        nx: Number of points along the x axis.
+        ny: Number of points along the y axis.
+        fast_axis: 0 for x-fast, 1 for y-fast.
+        rev_x: Reverse x axis direction.
+        rev_y: Reverse y axis direction.
+        nD: If True, treat coordinates as (n, D) and add a gate-voltage panel.
+        dtg: Top gate dielectric thickness (nm), for gate voltage conversion.
+        dbg: Back gate dielectric thickness (nm), for gate voltage conversion.
+        ep: Dielectric constant of hBN, for gate voltage conversion.
+        figsize: Figure size (width, height).
+
+    Returns:
+        The matplotlib Figure (access axes via ``fig.axes``).
+    """
+    xs, ys = rasterize(vertices, nx, ny, fast_axis, rev_x, rev_y)
+    colors = np.linspace(0, 1, len(xs))
+
+    if nD:
+        fig, (ax_nD, ax_gate) = plt.subplots(1, 2, figsize=figsize)
+
+        ax_nD.scatter(xs, ys, c=colors, cmap="viridis", s=1)
+        ax_nD.plot(vertices[:, 0], vertices[:, 1], "r-", linewidth=1)
+        ax_nD.set_xlabel(r"$n$ ($10^{12}$ cm$^{-2}$)")
+        ax_nD.set_ylabel(r"$D/\epsilon_0$ (V/nm)")
+        ax_nD.set_title("Raster preview (n, D)")
+        ax_nD.set_aspect("auto")
+
+        Vtg, Vbg = calculate_gate_voltages(xs, ys, dtg, dbg, ep)
+        vtg_verts, vbg_verts = calculate_gate_voltages(
+            vertices[:, 0], vertices[:, 1], dtg, dbg, ep
+        )
+        ax_gate.scatter(Vtg, Vbg, c=colors, cmap="viridis", s=1)
+        ax_gate.plot(vtg_verts, vbg_verts, "r-", linewidth=1)
+        ax_gate.set_xlabel(r"$V_{tg}$ (V)")
+        ax_gate.set_ylabel(r"$V_{bg}$ (V)")
+        ax_gate.set_title("Raster preview (gate voltages)")
+        ax_gate.set_aspect("auto")
+    else:
+        fig, ax = plt.subplots(figsize=figsize)
+
+        ax.scatter(xs, ys, c=colors, cmap="viridis", s=1)
+        ax.plot(vertices[:, 0], vertices[:, 1], "r-", linewidth=1)
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_title("Raster preview")
+        ax.set_aspect("auto")
+
+    fig.tight_layout()
+    return fig
+
+
+def plot_leakage(
+    file_path: str,
+    files: list[int],
+    gate: str = "tg",
+    *,
+    limits: tuple[float, float] | None = None,
+    figsize: tuple[float, float] = (10, 5),
+) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
+    """Plot gate leakage current vs swept parameter.
+
+    Args:
+        file_path: Base directory containing measurement data.
+        files: List of run IDs to overlay.
+        gate: Gate to plot leakage for: ``"tg"``, ``"bg"``, or ``"si"``.
+        limits: If provided, draw horizontal threshold lines at both values.
+        figsize: Figure size (width, height).
+
+    Returns:
+        (fig, ax) tuple.
+    """
+    fig, ax = plt.subplots(figsize=figsize)
+
+    meta = sl.load_meta(file_path, files[0])
+    x_label = _label_for_param(meta.get("param"))
+    current_col = f"k_{gate}_curr"
+
+    for file_id in files:
+        data = sl.pload(file_path, file_id)
+        xs = _get_xs(data)
+        y = data[current_col]
+        x = xs[: len(y)] if xs is not None else np.arange(len(y))
+        ax.plot(x, y, label=f"#{file_id}")
+
+    if limits is not None:
+        ax.axhline(limits[0], color="red", linestyle="--", alpha=0.7, label="limit")
+        ax.axhline(limits[1], color="red", linestyle="--", alpha=0.7)
+
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(f"$I_{{\\mathrm{{{gate}}}}}$ (A)")
+    ax.set_title(f"{gate} leakage")
+    ax.legend()
+
+    return fig, ax
