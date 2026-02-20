@@ -1,3 +1,4 @@
+import contextlib
 import dataclasses
 import functools
 import os
@@ -7,6 +8,7 @@ import time
 import concurrent.futures
 import inspect
 from collections import defaultdict
+from collections.abc import Iterator
 from typing import Any, Callable
 
 from tqdm.auto import tqdm
@@ -314,6 +316,9 @@ class Station:
 
             fn(*args, **accepted)
 
+    def _sweep_context(self) -> contextlib.AbstractContextManager[None]:
+        return contextlib.nullcontext()
+
     def _measure(self) -> list[float]:
         return [p() / gain for p, gain in self._params]
 
@@ -383,7 +388,7 @@ class Station:
 
     def measure(self) -> SweepResult:
         self._check_interrupted()
-        with sweep.db.Writer(self._basedir) as w:
+        with self._sweep_context(), sweep.db.Writer(self._basedir) as w:
             self.logger.info(f"Starting measure with ID {w.id}")
             w.metadata["version"] = 2
             w.metadata["comments"] = self._comments
@@ -420,7 +425,11 @@ class Station:
         self, delay: float = 0.0, max_duration: float | None = None
     ) -> SweepResult:
         self._check_interrupted()
-        with sweep.db.Writer(self._basedir) as w, self._plotter as p:
+        with (
+            self._sweep_context(),
+            sweep.db.Writer(self._basedir) as w,
+            self._plotter as p,
+        ):
             self.logger.info(f"Starting watch with ID {w.id}")
             w.metadata["version"] = 2
             w.metadata["comments"] = self._comments
@@ -477,7 +486,11 @@ class Station:
         self, param: Parameter, setpoints: Setpoints, delay: float = 0.0
     ) -> SweepResult:
         self._check_interrupted()
-        with sweep.db.Writer(self._basedir) as w, self._plotter as p:
+        with (
+            self._sweep_context(),
+            sweep.db.Writer(self._basedir) as w,
+            self._plotter as p,
+        ):
             self.logger.info(f"Starting sweep with ID {w.id}")
             self.logger.debug(f"Sweeping: {param.full_name}")
             self.logger.info(f"Minimum duration {_sec_to_str(len(setpoints) * delay)}")
@@ -546,7 +559,11 @@ class Station:
             raise ValueError("not all setpoint lists have same length!")
 
         setpoints = [list(i) for i in zip(*setpointslist)]
-        with sweep.db.Writer(self._basedir) as w, self._plotter as p:
+        with (
+            self._sweep_context(),
+            sweep.db.Writer(self._basedir) as w,
+            self._plotter as p,
+        ):
             self.logger.info(f"Starting multisweep with ID {w.id}")
             paramlist: list[str] = []
             for param in params:
@@ -621,7 +638,11 @@ class Station:
         init_delay: bool = True,
     ) -> SweepResult:
         self._check_interrupted()
-        with sweep.db.Writer(self._basedir) as w, self._plotter as p:
+        with (
+            self._sweep_context(),
+            sweep.db.Writer(self._basedir) as w,
+            self._plotter as p,
+        ):
             self.logger.info(f"Starting megasweep with ID {w.id}")
             self.logger.debug(
                 f"Slow: {slow_param.full_name}, Fast: {fast_param.full_name}"
@@ -732,7 +753,11 @@ class Station:
         slow_vs = [list(i) for i in zip(*slow_v_list)]
         fast_vs = [list(i) for i in zip(*fast_v_list)]
 
-        with sweep.db.Writer(self._basedir) as w, self._plotter as p:
+        with (
+            self._sweep_context(),
+            sweep.db.Writer(self._basedir) as w,
+            self._plotter as p,
+        ):
             self.logger.info(f"Starting multimegasweep with ID {w.id}")
             slowparamlist: list[str] = []
             for param in slow_params:
@@ -866,7 +891,19 @@ class AsyncStation(Station):
             defaultdict(list)
         )
         self._params: list[ParamGain] = []
+        self._executor: concurrent.futures.ThreadPoolExecutor | None = None
         super().__init__(measurement_config, basedir, verbose)
+
+    @contextlib.contextmanager
+    def _sweep_context(self) -> Iterator[None]:
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=len(self._ps_by_inst)
+        )
+        try:
+            yield
+        finally:
+            self._executor.shutdown(wait=True)
+            self._executor = None
 
     def follow_param(self, param: Parameter, gain: float = 1.0) -> "AsyncStation":
         self._params.append((param, gain))
@@ -908,20 +945,28 @@ class AsyncStation(Station):
 
         return None
 
+    @contextlib.contextmanager
+    def _ensure_executor(self) -> Iterator[concurrent.futures.ThreadPoolExecutor]:
+        if self._executor is not None:
+            yield self._executor
+        else:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=len(self._ps_by_inst)
+            ) as executor:
+                yield executor
+
     def _measure(self) -> list[float]:
-        futs_by_inst: dict[
-            InstrumentBase | None, concurrent.futures.Future[list[float]]
-        ] = {}
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=len(self._params)
-        ) as executor:
+        with self._ensure_executor() as executor:
+            futs_by_inst: dict[
+                InstrumentBase | None, concurrent.futures.Future[list[float]]
+            ] = {}
             for i, ps in self._ps_by_inst.items():
                 futs_by_inst[i] = executor.submit(self._measure_by_inst, ps)
 
-        ret: dict[Parameter, float] = {}
-        for future, ps in zip(futs_by_inst.values(), self._ps_by_inst.values()):
-            results = future.result()
-            for res, p in zip(results, ps):
-                ret[p] = res
+            ret: dict[Parameter, float] = {}
+            for future, ps in zip(futs_by_inst.values(), self._ps_by_inst.values()):
+                results = future.result()
+                for res, p in zip(results, ps):
+                    ret[p] = res
 
         return [ret[p] / gain for p, gain in self._params]
