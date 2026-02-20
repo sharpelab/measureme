@@ -22,3 +22,4 @@ from sharpelab_nb.models import (
     SharpeLabConfig as SharpeLabConfig,
     label_for_role as label_for_role,
 )
+from sharpelab_nb.drivers import SRS_DC205 as SRS_DC205
