@@ -878,7 +878,35 @@ class AsyncStation(Station):
     fp = follow_param
 
     def _measure_by_inst(self, ps: list[Parameter]) -> list[float]:
+        batch_result = self._try_batch_read(ps)
+        if batch_result is not None:
+            return batch_result
         return [p() for p in ps]
+
+    def _try_batch_read(self, ps: list[Parameter]) -> list[float] | None:
+        """Attempt a coherent batch read if the instrument supports it."""
+        if len(ps) < 2:
+            return None
+
+        inst = ps[0].instrument
+        if inst is None:
+            return None
+
+        # SR830-style: snap() with SNAP_PARAMETERS (case-insensitive, 2-6 params)
+        snap_params: dict[str, str] | None = getattr(inst, "SNAP_PARAMETERS", None)
+        if snap_params is not None and hasattr(inst, "snap") and len(ps) <= 6:
+            names = [p.name for p in ps]
+            if all(n.lower() in snap_params for n in names):
+                return list(inst.snap(*names))
+
+        # SR86x-style: get_values() with PARAMETER_NAMES (case-sensitive, 2-3 params)
+        param_names: dict[str, str] | None = getattr(inst, "PARAMETER_NAMES", None)
+        if param_names is not None and hasattr(inst, "get_values") and len(ps) <= 3:
+            names = [p.name for p in ps]
+            if all(n in param_names for n in names):
+                return list(inst.get_values(*names))
+
+        return None
 
     def _measure(self) -> list[float]:
         futs_by_inst: dict[
