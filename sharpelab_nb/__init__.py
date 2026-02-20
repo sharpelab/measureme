@@ -22,4 +22,7 @@ from sharpelab_nb.models import (
     SharpeLabConfig as SharpeLabConfig,
     label_for_role as label_for_role,
 )
+from sharpelab_nb.constants import TOPLOADER as TOPLOADER
+from sharpelab_nb.constants import FridgeConfig as FridgeConfig
 from sharpelab_nb.drivers import SRS_DC205 as SRS_DC205
+from sharpelab_nb.drivers import Yokogawa7651 as Yokogawa7651
