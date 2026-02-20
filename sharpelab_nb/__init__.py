@@ -26,3 +26,6 @@ from sharpelab_nb.constants import TOPLOADER as TOPLOADER
 from sharpelab_nb.constants import FridgeConfig as FridgeConfig
 from sharpelab_nb.drivers import SRS_DC205 as SRS_DC205
 from sharpelab_nb.drivers import Yokogawa7651 as Yokogawa7651
+from sharpelab_nb.thermometry import (
+    temperature_from_logfile as temperature_from_logfile,
+)
