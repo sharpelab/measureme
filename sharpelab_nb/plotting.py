@@ -5,10 +5,12 @@ from typing import Any
 import matplotlib.pyplot as plt
 import matplotlib.figure
 import matplotlib.axes
+import matplotlib.collections
 import numpy as np
 
 import sweep.sweep_load as sl
 from sharpelab_nb.config import get_contact_pairs
+from sharpelab_nb.gates import calculate_n_D
 from sharpelab_nb.models import ContactPair, label_for_role
 
 
@@ -87,7 +89,7 @@ def _get_xs(data: dict[str, Any]) -> Any:
     return None
 
 
-def _x_label_for_param(param: str | None) -> str:
+def _label_for_param(param: str | None) -> str:
     """Derive an x-axis label from the sweep parameter name."""
     if param is None:
         return ""
@@ -143,7 +145,7 @@ def plot_sweep(
     # Read sweep param from first file for axis labels
     meta = sl.load_meta(file_path, files[0])
     sweep_param: str | None = meta.get("param")
-    x_label = _x_label_for_param(sweep_param)
+    x_label = _label_for_param(sweep_param)
 
     for role, cp in contact_pairs.items():
         channels = cp["channels"]
@@ -197,5 +199,163 @@ def plot_sweep(
             ax_phase.legend()
 
             result.panels[(role, ch)] = (fig, ax_val, ax_phase)
+
+    return result
+
+
+class GatemapPlotResult:
+    """Result of plot_gatemap. Holds figures/axes/meshes for post-hoc adjustments.
+
+    Access by role and channel index::
+
+        result = plot_gatemap(file_path, 1265, contact_pairs=cp)
+        result.mesh("long1", 1).set_cmap("RdBu_r")
+        result.ax("long1", 1).set_title("custom title")
+
+    Or iterate all panels::
+
+        for key, (fig, ax, mesh) in result.panels.items():
+            ax.set_xlim(-5, 5)
+    """
+
+    def __init__(self) -> None:
+        # (role, channel_index) -> (fig, axes, quadmesh)
+        self.panels: dict[
+            tuple[str, int],
+            tuple[
+                matplotlib.figure.Figure,
+                matplotlib.axes.Axes,
+                matplotlib.collections.QuadMesh,
+            ],
+        ] = {}
+
+    def ax(self, role: str, channel: int) -> matplotlib.axes.Axes:
+        """Get the axes for a given role and channel."""
+        return self.panels[(role, channel)][1]
+
+    def fig(self, role: str, channel: int) -> matplotlib.figure.Figure:
+        """Get the figure for a given role and channel."""
+        return self.panels[(role, channel)][0]
+
+    def mesh(self, role: str, channel: int) -> matplotlib.collections.QuadMesh:
+        """Get the QuadMesh for colormap/norm adjustments."""
+        return self.panels[(role, channel)][2]
+
+
+def plot_gatemap(
+    file_path: str,
+    file: int,
+    contact_pairs: dict[str, ContactPair] | None = None,
+    *,
+    nD: bool = False,
+    dtg: float = 16,
+    dbg: float = 25.5,
+    ep: float = 3,
+    current_mask: float = 0.0,
+    figsize: tuple[float, float] = (10, 8),
+) -> GatemapPlotResult:
+    """Plot 2D raster gatemap data as colormesh per contact pair channel.
+
+    Creates one figure per channel with a pcolormesh colormap. Contact pairs
+    are auto-extracted from metadata if not provided.
+
+    The ``curr`` role is plotted as raw current (I), all other roles
+    as resistance (R = V/I).
+
+    Args:
+        file_path: Base directory containing measurement data.
+        file: Run ID of the 2D megasweep.
+        contact_pairs: Role -> ContactPair mapping. If None, extracted
+            from the file's metadata (requires sharpelab sentinel).
+        nD: If True, convert gate voltages to carrier density (n) and
+            displacement field (D). Requires slow/fast params to contain
+            "tg" and "bg".
+        dtg: Top gate dielectric thickness (nm), for n/D conversion.
+        dbg: Back gate dielectric thickness (nm), for n/D conversion.
+        ep: Dielectric constant of hBN, for n/D conversion.
+        current_mask: Mask out points where |I| < current_mask * max(|I|).
+            Set to 0.0 (default) to disable masking.
+        figsize: Figure size (width, height).
+
+    Returns:
+        GatemapPlotResult with axes/meshes accessible for further customization.
+    """
+    if contact_pairs is None:
+        contact_pairs = _extract_contact_pairs(file_path, [file])
+
+    current_col = _find_current_column(contact_pairs)
+    data = sl.pload(file_path, file)
+    meta = sl.load_meta(file_path, file)
+
+    # xs = fast setpoints, ys = slow setpoints
+    xs = np.asarray(data["xs"])
+    ys = np.asarray(data["ys"])
+    fast_param: str | None = meta.get("fast_param")
+    slow_param: str | None = meta.get("slow_param")
+
+    if nD:
+        # Identify which axis is tg and which is bg
+        fast_is_tg = fast_param is not None and "tg" in fast_param.lower()
+        fast_is_bg = fast_param is not None and "bg" in fast_param.lower()
+        slow_is_tg = slow_param is not None and "tg" in slow_param.lower()
+        slow_is_bg = slow_param is not None and "bg" in slow_param.lower()
+
+        if not ((fast_is_tg and slow_is_bg) or (fast_is_bg and slow_is_tg)):
+            raise ValueError(
+                f"nD=True requires one tg and one bg axis, got "
+                f"fast_param={fast_param!r}, slow_param={slow_param!r}"
+            )
+
+        # Build 2D grids from 1D setpoints
+        fast_grid, slow_grid = np.meshgrid(xs, ys)
+
+        if fast_is_tg:
+            Vtg_grid, Vbg_grid = fast_grid, slow_grid
+        else:
+            Vtg_grid, Vbg_grid = slow_grid, fast_grid
+
+        n_grid, D_grid = calculate_n_D(Vtg_grid, Vbg_grid, dtg, dbg, ep)
+        # Convention: n on x-axis, D on y-axis
+        x_plot = n_grid
+        y_plot = D_grid
+        x_label = r"$n$ ($10^{12}$ cm$^{-2}$)"
+        y_label = r"$D/\epsilon_0$ (V/nm)"
+    else:
+        x_plot = xs
+        y_plot = ys
+        x_label = _label_for_param(fast_param)
+        y_label = _label_for_param(slow_param)
+
+    current = data[current_col]
+    result = GatemapPlotResult()
+
+    for role, cp in contact_pairs.items():
+        channels = cp["channels"]
+        contacts = cp["contacts"]
+        is_curr = role == "curr"
+        colorbar_label = label_for_role(role)
+
+        for i, ch in enumerate(channels):
+            col_x = f"sr830_{ch}_X"
+            contact_label = contacts[i] if i < len(contacts) else ""
+
+            if is_curr:
+                z = current
+            else:
+                Vxx = data[col_x]
+                z = Vxx / current
+                if current_mask > 0:
+                    mask = np.abs(current) < current_mask * np.nanmax(np.abs(current))
+                    z = np.ma.array(z, mask=mask)
+
+            fig, ax = plt.subplots(figsize=figsize)
+            mesh = ax.pcolormesh(x_plot, y_plot, z, shading="auto")
+            fig.colorbar(mesh, ax=ax, label=colorbar_label)
+
+            ax.set_xlabel(x_label)
+            ax.set_ylabel(y_label)
+            ax.set_title(f"{role} ch{ch} ({contact_label})")
+
+            result.panels[(role, ch)] = (fig, ax, mesh)
 
     return result
