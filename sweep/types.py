@@ -1,8 +1,11 @@
 from collections.abc import Sequence
-from typing import Any, Callable, Literal, NamedTuple, TypedDict
+from typing import Any, Callable, Final, Literal, NamedTuple, TypedDict
 
 import numpy as np
 from qcodes.parameters import Parameter
+
+# Metadata schema version written by all sweep functions
+METADATA_VERSION: Final = 2
 
 # User comments attached to a sweep (strings or metadata dicts)
 Comment = str | dict[str, Any]

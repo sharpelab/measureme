@@ -23,6 +23,7 @@ from qcodes.instrument import InstrumentBase
 from typing import cast
 
 from sweep.types import (
+    METADATA_VERSION,
     Comment,
     Hook,
     MegasweepMetadata,
@@ -319,6 +320,19 @@ class Station:
     def _sweep_context(self) -> contextlib.AbstractContextManager[None]:
         return contextlib.nullcontext()
 
+    def _init_metadata(
+        self, w: sweep.db.Writer, *, columns: list[str], **extra: Any
+    ) -> None:
+        w.metadata["version"] = METADATA_VERSION
+        w.metadata["comments"] = self._comments
+        w.metadata["columns"] = columns
+        w.metadata["measurement_config"] = self._measurement_config
+        w.metadata["instruments"] = self._instruments()
+        w.metadata["interrupted"] = False
+        w.metadata["start_time"] = time.time()
+        w.metadata.update(extra)
+        w.update_metadata()
+
     def _measure(self) -> list[float]:
         return [p() / gain for p, gain in self._params]
 
@@ -390,16 +404,12 @@ class Station:
         self._check_interrupted()
         with self._sweep_context(), sweep.db.Writer(self._basedir) as w:
             self.logger.info(f"Starting measure with ID {w.id}")
-            w.metadata["version"] = 2
-            w.metadata["comments"] = self._comments
-            w.metadata["type"] = "0D"
-            w.metadata["function"] = "measure"
-            w.metadata["columns"] = ["time"] + self._col_names()
-            w.metadata["measurement_config"] = self._measurement_config
-            w.metadata["instruments"] = self._instruments()
-            w.metadata["interrupted"] = False
-            w.metadata["start_time"] = time.time()
-            w.update_metadata()
+            self._init_metadata(
+                w,
+                type="0D",
+                function="measure",
+                columns=["time"] + self._col_names(),
+            )
 
             self._run_run_befores(
                 station=self,
@@ -431,19 +441,15 @@ class Station:
             self._plotter as p,
         ):
             self.logger.info(f"Starting watch with ID {w.id}")
-            w.metadata["version"] = 2
-            w.metadata["comments"] = self._comments
-            w.metadata["type"] = "1D"
-            w.metadata["function"] = "watch"
-            w.metadata["delay"] = delay
-            w.metadata["max_duration"] = max_duration
-            w.metadata["columns"] = ["time"] + self._col_names()
-            w.metadata["measurement_config"] = self._measurement_config
-            w.metadata["instruments"] = self._instruments()
-            w.metadata["interrupted"] = False
-            w.metadata["start_time"] = time.time()
+            self._init_metadata(
+                w,
+                type="1D",
+                function="watch",
+                delay=delay,
+                max_duration=max_duration,
+                columns=["time"] + self._col_names(),
+            )
             p.set_cols(w.metadata["columns"])
-            w.update_metadata()
 
             t_start = time.monotonic()  # Can't go backwards!
             while max_duration is None or time.monotonic() - t_start < max_duration:
@@ -495,20 +501,16 @@ class Station:
             self.logger.debug(f"Sweeping: {param.full_name}")
             self.logger.info(f"Minimum duration {_sec_to_str(len(setpoints) * delay)}")
 
-            w.metadata["version"] = 2
-            w.metadata["comments"] = self._comments
-            w.metadata["type"] = "1D"
-            w.metadata["function"] = "sweep"
-            w.metadata["delay"] = delay
-            w.metadata["param"] = param.full_name
-            w.metadata["columns"] = ["time", param.full_name] + self._col_names()
-            w.metadata["measurement_config"] = self._measurement_config
-            w.metadata["instruments"] = self._instruments()
-            w.metadata["setpoints"] = list(setpoints)
-            w.metadata["interrupted"] = False
-            w.metadata["start_time"] = time.time()
+            self._init_metadata(
+                w,
+                type="1D",
+                function="sweep",
+                delay=delay,
+                param=param.full_name,
+                columns=["time", param.full_name] + self._col_names(),
+                setpoints=list(setpoints),
+            )
             p.set_cols(w.metadata["columns"])
-            w.update_metadata()
 
             for setpoint in tqdm(setpoints):
                 param(setpoint)
@@ -571,22 +573,16 @@ class Station:
             self.logger.debug(f"Sweeping: {paramlist}")
             self.logger.info(f"Minimum duration {_sec_to_str(len(setpoints) * delay)}")
 
-            w.metadata["version"] = 2
-            w.metadata["comments"] = self._comments
-            w.metadata["type"] = "1D"
-            w.metadata["function"] = "multisweep"
-            w.metadata["delay"] = delay
-            w.metadata["params"] = paramlist
-            w.metadata["columns"] = (
-                ["time"] + [param for param in paramlist] + self._col_names()
+            self._init_metadata(
+                w,
+                type="1D",
+                function="multisweep",
+                delay=delay,
+                params=paramlist,
+                columns=["time"] + paramlist + self._col_names(),
+                setpoints=[list(sps) for sps in setpointslist],
             )
-            w.metadata["measurement_config"] = self._measurement_config
-            w.metadata["instruments"] = self._instruments()
-            w.metadata["setpoints"] = [list(sps) for sps in setpointslist]
-            w.metadata["interrupted"] = False
-            w.metadata["start_time"] = time.time()
             p.set_cols(w.metadata["columns"])
-            w.update_metadata()
 
             for setpoint in tqdm(setpoints):
                 for param, sp in zip(params, setpoint):
@@ -652,27 +648,24 @@ class Station:
             )
             self.logger.info(f"Minimum duration {_sec_to_str(min_duration)}")
 
-            w.metadata["version"] = 2
-            w.metadata["comments"] = self._comments
-            w.metadata["type"] = "2D"
-            w.metadata["function"] = "megasweep"
-            w.metadata["slow_delay"] = slow_delay
-            w.metadata["fast_delay"] = fast_delay
-            w.metadata["slow_param"] = slow_param.full_name
-            w.metadata["fast_param"] = fast_param.full_name
-            w.metadata["columns"] = [
-                "time",
-                slow_param.full_name,
-                fast_param.full_name,
-            ] + self._col_names()
-            w.metadata["measurement_config"] = self._measurement_config
-            w.metadata["instruments"] = self._instruments()
-            w.metadata["slow_setpoints"] = list(slow_v)
-            w.metadata["fast_setpoints"] = list(fast_v)
-            w.metadata["interrupted"] = False
-            w.metadata["start_time"] = time.time()
+            self._init_metadata(
+                w,
+                type="2D",
+                function="megasweep",
+                slow_delay=slow_delay,
+                fast_delay=fast_delay,
+                slow_param=slow_param.full_name,
+                fast_param=fast_param.full_name,
+                columns=[
+                    "time",
+                    slow_param.full_name,
+                    fast_param.full_name,
+                ]
+                + self._col_names(),
+                slow_setpoints=list(slow_v),
+                fast_setpoints=list(fast_v),
+            )
             p.set_cols(w.metadata["columns"])
-            w.update_metadata()
 
             for i, ov in enumerate(tqdm(slow_v, position=0)):
                 self.logger.debug(
@@ -773,28 +766,19 @@ class Station:
             )
             self.logger.info(f"Minimum duration {_sec_to_str(min_duration)}")
 
-            w.metadata["version"] = 2
-            w.metadata["comments"] = self._comments
-            w.metadata["type"] = "2D"
-            w.metadata["function"] = "multimegasweep"
-            w.metadata["slow_delay"] = slow_delay
-            w.metadata["fast_delay"] = fast_delay
-            w.metadata["slow_params"] = slowparamlist
-            w.metadata["fast_params"] = fastparamlist
-            w.metadata["columns"] = (
-                ["time"]
-                + [param for param in slowparamlist]
-                + [param for param in fastparamlist]
-                + self._col_names()
+            self._init_metadata(
+                w,
+                type="2D",
+                function="multimegasweep",
+                slow_delay=slow_delay,
+                fast_delay=fast_delay,
+                slow_params=slowparamlist,
+                fast_params=fastparamlist,
+                columns=["time"] + slowparamlist + fastparamlist + self._col_names(),
+                slow_setpoints=[list(sps) for sps in slow_v_list],
+                fast_setpoints=[list(sps) for sps in fast_v_list],
             )
-            w.metadata["measurement_config"] = self._measurement_config
-            w.metadata["instruments"] = self._instruments()
-            w.metadata["slow_setpoints"] = [list(sps) for sps in slow_v_list]
-            w.metadata["fast_setpoints"] = [list(sps) for sps in fast_v_list]
-            w.metadata["interrupted"] = False
-            w.metadata["start_time"] = time.time()
             p.set_cols(w.metadata["columns"])
-            w.update_metadata()
 
             for i, slow_v in enumerate(tqdm(slow_vs, position=0)):
                 self.logger.debug(f"{i + 1}/{len(slow_vs)}: {slowparamlist} = {slow_v}")
