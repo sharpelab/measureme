@@ -11,7 +11,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from typing import Any, Callable
 
-from tqdm.auto import tqdm
+from sweep.progress import tqdm
 import logging
 
 from IPython import display
