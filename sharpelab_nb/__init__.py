@@ -1,4 +1,6 @@
 from sharpelab_nb.autorange import autorange_sr830s as autorange_sr830s
+from sharpelab_nb.plotting import SweepPlotResult as SweepPlotResult
+from sharpelab_nb.plotting import plot_sweep as plot_sweep
 from sharpelab_nb.config import (
     build_measurement_config as build_measurement_config,
     get_channels as get_channels,
@@ -10,7 +12,7 @@ from sharpelab_nb.gates import (
     comment_to_gates as comment_to_gates,
 )
 from sharpelab_nb.status import Status as Status
-from sharpelab_nb.types import (
+from sharpelab_nb.models import (
     ContactPair as ContactPair,
     SharpeLabConfig as SharpeLabConfig,
     label_for_role as label_for_role,

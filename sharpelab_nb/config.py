@@ -2,7 +2,7 @@ from typing import Any
 
 from typing import Mapping
 
-from sharpelab_nb.types import SHARPELAB_SENTINEL, ContactPair, SharpeLabConfig
+from sharpelab_nb.models import SHARPELAB_SENTINEL, ContactPair, SharpeLabConfig
 
 
 def build_measurement_config(

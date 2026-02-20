@@ -5,7 +5,7 @@ from sharpelab_nb.config import (
     get_channels,
     get_contact_pairs,
 )
-from sharpelab_nb.types import label_for_role
+from sharpelab_nb.models import label_for_role
 
 
 MC = {
