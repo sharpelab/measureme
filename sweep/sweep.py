@@ -46,10 +46,28 @@ import numpy as np
 
 BASEDIR: str | None = None
 
+_shutdown_handler: Callable[[], None] | None = None
+_shutdown_requested: bool = False
+_sweep_active: bool = False
+
 
 def set_basedir(path: str) -> None:
     global BASEDIR
     BASEDIR = path
+
+
+def set_shutdown_handler(fn: Callable[[], None]) -> None:
+    """Register a function to call on graceful shutdown (e.g. ramp down instruments)."""
+    global _shutdown_handler
+    _shutdown_handler = fn
+
+
+def request_shutdown() -> None:
+    """Trigger graceful shutdown. Thread-safe — call from UPS monitor or timer."""
+    global _shutdown_requested
+    _shutdown_requested = True
+    if not _sweep_active and _shutdown_handler is not None:
+        _shutdown_handler()
 
 
 def _sec_to_str(d: float) -> str:
@@ -184,14 +202,24 @@ def _interruptible(func: Callable[..., Any]) -> Callable[..., Any]:
     # TODO: Allow potentially the param(setpoint) if possible.
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
+        global _sweep_active, _shutdown_requested
         args[0].interrupt_requested = False
+        _sweep_active = True
 
         def handler(signum: int, frame: Any) -> None:
             args[0].interrupt_requested = True
 
         old_handler = signal.signal(signal.SIGINT, handler)
-        result = func(*args, **kwargs)
-        signal.signal(signal.SIGINT, old_handler)
+        try:
+            result = func(*args, **kwargs)
+        finally:
+            signal.signal(signal.SIGINT, old_handler)
+            _sweep_active = False
+
+        if _shutdown_requested and _shutdown_handler is not None:
+            _shutdown_handler()
+            _shutdown_requested = False
+
         return result
 
     return wrapper
@@ -379,13 +407,16 @@ class Station:
                 "Station was previously interrupted, either remake it or use station.reset()"
             )
 
+    def _should_stop(self) -> bool:
+        return self.interrupt_requested or _shutdown_requested
+
     def _interruptable_sleep(self, delay: float) -> None:
         if delay <= 2:
             time.sleep(delay)
         else:
             t0 = time.time()
             while time.time() - t0 < delay:
-                if self.interrupt_requested:
+                if self._should_stop():
                     break
                 time.sleep(0.1)
 
@@ -472,7 +503,7 @@ class Station:
                     writer=w,
                 )
 
-                if self.interrupt_requested:
+                if self._should_stop():
                     self.logger.warning(f"ID {w.id} INTERRUPTED")
                     self._interrupted = True
                     w.metadata["interrupted"] = True
@@ -533,7 +564,7 @@ class Station:
                     writer=w,
                 )
 
-                if self.interrupt_requested:
+                if self._should_stop():
                     self.logger.warning(f"ID {w.id} INTERRUPTED")
                     self._interrupted = True
                     w.metadata["interrupted"] = True
@@ -606,7 +637,7 @@ class Station:
                     writer=w,
                 )
 
-                if self.interrupt_requested:
+                if self._should_stop():
                     self.logger.warning(f"ID {w.id} INTERRUPTED")
                     self._interrupted = True
                     w.metadata["interrupted"] = True
@@ -682,7 +713,7 @@ class Station:
                     elif j == 0:
                         self._interruptable_sleep(slow_delay)
 
-                    if self.interrupt_requested:
+                    if self._should_stop():
                         self.logger.warning(f"ID {w.id} INTERRUPTED")
                         self._interrupted = True
                         w.metadata["interrupted"] = True
@@ -704,13 +735,13 @@ class Station:
                         writer=w,
                     )
 
-                    if self.interrupt_requested:
+                    if self._should_stop():
                         self.logger.warning(f"ID {w.id} INTERRUPTED")
                         self._interrupted = True
                         w.metadata["interrupted"] = True
                         break
 
-                if self.interrupt_requested:
+                if self._should_stop():
                     self.logger.warning(f"ID {w.id} INTERRUPTED")
                     self._interrupted = True
                     w.metadata["interrupted"] = True
@@ -796,7 +827,7 @@ class Station:
                     elif j == 0:
                         self._interruptable_sleep(slow_delay)
 
-                    if self.interrupt_requested:
+                    if self._should_stop():
                         self.logger.warning(f"ID {w.id} INTERRUPTED")
                         self._interrupted = True
                         w.metadata["interrupted"] = True
@@ -819,13 +850,13 @@ class Station:
                         writer=w,
                     )
 
-                    if self.interrupt_requested:
+                    if self._should_stop():
                         self.logger.warning(f"ID {w.id} INTERRUPTED")
                         self._interrupted = True
                         w.metadata["interrupted"] = True
                         break
 
-                if self.interrupt_requested:
+                if self._should_stop():
                     self.logger.warning(f"ID {w.id} INTERRUPTED")
                     self._interrupted = True
                     w.metadata["interrupted"] = True
