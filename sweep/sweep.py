@@ -11,7 +11,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from typing import Any, Callable
 
-from sweep.progress import tqdm
+from sweep.progress import interruptible_sleep, tqdm
 import logging
 
 from IPython import display
@@ -68,6 +68,11 @@ def request_shutdown() -> None:
     _shutdown_requested = True
     if not _sweep_active and _shutdown_handler is not None:
         _shutdown_handler()
+
+
+def shutdown_requested() -> bool:
+    """True once request_shutdown() has fired (UPS/timer graceful shutdown)."""
+    return _shutdown_requested
 
 
 def _sec_to_str(d: float) -> str:
@@ -410,16 +415,6 @@ class Station:
     def _should_stop(self) -> bool:
         return self.interrupt_requested or _shutdown_requested
 
-    def _interruptable_sleep(self, delay: float) -> None:
-        if delay <= 2:
-            time.sleep(delay)
-        else:
-            t0 = time.time()
-            while time.time() - t0 < delay:
-                if self._should_stop():
-                    break
-                time.sleep(0.1)
-
     def ramp(self, param: Parameter, setpoint: float) -> None:
         cur_value = param()
         self.logger.info(f"Ramping {param.full_name}: {cur_value} -> {setpoint}")
@@ -711,7 +706,11 @@ class Station:
                     if not init_delay and i == 0 and j == 0:
                         pass
                     elif j == 0:
-                        self._interruptable_sleep(slow_delay)
+                        interruptible_sleep(
+                            slow_delay,
+                            show_progress=False,
+                            should_stop=self._should_stop,
+                        )
 
                     if self._should_stop():
                         self.logger.warning(f"ID {w.id} INTERRUPTED")
@@ -825,7 +824,11 @@ class Station:
                     if not init_delay and i == 0 and j == 0:
                         pass
                     elif j == 0:
-                        self._interruptable_sleep(slow_delay)
+                        interruptible_sleep(
+                            slow_delay,
+                            show_progress=False,
+                            should_stop=self._should_stop,
+                        )
 
                     if self._should_stop():
                         self.logger.warning(f"ID {w.id} INTERRUPTED")

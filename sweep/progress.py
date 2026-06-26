@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 
 def _in_jupyter() -> bool:
@@ -161,3 +161,50 @@ def tqdm(iterable: Iterable[Any] | None = None, **kwargs: Any) -> progress | Any
     from tqdm.std import tqdm as std_tqdm
 
     return std_tqdm(iterable, **kwargs)
+
+
+def interruptible_sleep(
+    total: float,
+    chunk: float = 0.1,
+    show_progress: bool = False,
+    should_stop: Callable[[], bool] | None = None,
+) -> None:
+    """
+    Sleep for ``total`` seconds in chunks of ``chunk`` seconds so a long wait
+    breaks promptly. Use this for any wait longer than a few seconds —
+    thermalization, base-T recovery, magnet settle.
+
+    Breaks early on any of: a kernel interrupt (Ctrl-C always lands cleanly
+    between chunks), a graceful shutdown request (``sweep.request_shutdown()``,
+    polled by default), or ``should_stop()`` returning True. Silent by default;
+    pass ``show_progress=True`` to draw a tqdm bar rounded to 0.1 s.
+    """
+    from sweep.sweep import shutdown_requested
+
+    pbar = None
+    if show_progress:
+        from tqdm.auto import tqdm as auto_tqdm
+
+        bar_fmt = "{l_bar}{bar}| {n:.1f}/{total:.1f}s [{postfix}]"
+        pbar = auto_tqdm(total=total, desc="Sleeping", unit="s", bar_format=bar_fmt)
+    try:
+        end = time.monotonic() + total
+        while True:
+            if shutdown_requested() or (should_stop is not None and should_stop()):
+                break
+            remaining = max(0.0, end - time.monotonic())
+            if remaining <= 0:
+                if pbar is not None:
+                    pbar.update(round(total - pbar.n, 1))
+                    pbar.set_postfix_str("0.0s left")
+                break
+            step = min(chunk, remaining)
+            time.sleep(step)
+            if pbar is not None:
+                pbar.update(round(step, 1))
+                pbar.n = round(pbar.n, 1)
+                pbar.set_postfix_str(f"{round(end - time.monotonic(), 1):.1f}s left")
+                pbar.refresh()
+    finally:
+        if pbar is not None:
+            pbar.close()
