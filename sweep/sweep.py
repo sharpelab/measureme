@@ -11,7 +11,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from typing import Any, Callable
 
-from sweep.progress import interruptible_sleep, tqdm
+from sweep.progress import interruptible_sleep
 import logging
 
 from IPython import display
@@ -51,9 +51,22 @@ _shutdown_requested: bool = False
 _sweep_active: bool = False
 
 
+def _noop_progress(iterable: Any, **kwargs: Any) -> Any:
+    return iterable
+
+
+_progress: Callable[..., Any] = _noop_progress
+
+
 def set_basedir(path: str) -> None:
     global BASEDIR
     BASEDIR = path
+
+
+def set_progress(fn: Callable[..., Any]) -> None:
+    """Register a progress factory wrapping sweep loops (tqdm-shaped); default is a no-op."""
+    global _progress
+    _progress = fn
 
 
 def set_shutdown_handler(fn: Callable[[], None]) -> None:
@@ -540,7 +553,7 @@ class Station:
             )
             p.set_cols(w.metadata["columns"])
 
-            for setpoint in tqdm(setpoints):
+            for setpoint in _progress(setpoints):
                 param(setpoint)
                 time.sleep(delay)
 
@@ -612,7 +625,7 @@ class Station:
             )
             p.set_cols(w.metadata["columns"])
 
-            for setpoint in tqdm(setpoints):
+            for setpoint in _progress(setpoints):
                 for param, sp in zip(params, setpoint):
                     param(sp)
                 time.sleep(delay)
@@ -695,13 +708,13 @@ class Station:
             )
             p.set_cols(w.metadata["columns"])
 
-            for i, ov in enumerate(tqdm(slow_v, position=0)):
+            for i, ov in enumerate(_progress(slow_v, position=0)):
                 self.logger.debug(
                     f"{i + 1}/{len(slow_v)}: {slow_param.full_name}= {ov}"
                 )
                 slow_param(ov)
 
-                for j, iv in enumerate(tqdm(fast_v, position=1, leave=False)):
+                for j, iv in enumerate(_progress(fast_v, position=1, leave=False)):
                     fast_param(iv)
                     if not init_delay and i == 0 and j == 0:
                         pass
@@ -812,12 +825,12 @@ class Station:
             )
             p.set_cols(w.metadata["columns"])
 
-            for i, slow_v in enumerate(tqdm(slow_vs, position=0)):
+            for i, slow_v in enumerate(_progress(slow_vs, position=0)):
                 self.logger.debug(f"{i + 1}/{len(slow_vs)}: {slowparamlist} = {slow_v}")
                 for slow_param, ov in zip(slow_params, slow_v):
                     slow_param(ov)
 
-                for j, fast_v in enumerate(tqdm(fast_vs, position=1, leave=False)):
+                for j, fast_v in enumerate(_progress(fast_vs, position=1, leave=False)):
                     for fast_param, iv in zip(fast_params, fast_v):
                         fast_param(iv)
 

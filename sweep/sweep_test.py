@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from typing import cast
+from typing import Any, cast
 
 from qcodes.instrument_drivers.mock_instruments import DummyInstrument
 
@@ -57,6 +57,41 @@ class TestStation(unittest.TestCase):
         with db.Reader(res.basedir, res.id) as r:
             self.assertEqual(len(r.all_data()), 10)
             self.assertTrue(len(r.blob("plot.png")) > 0)
+
+
+class TestProgress(unittest.TestCase):
+    def setUp(self) -> None:
+        self.dir = tempfile.TemporaryDirectory()
+        self.dac = DummyInstrument("dac", gates=["ch1", "ch2"])
+
+    def tearDown(self) -> None:
+        sweep.set_progress(lambda it, **k: it)
+        self.dac.close()
+        self.dir.cleanup()
+
+    def test_default_is_noop(self) -> None:
+        # Under the default no-op factory a sweep runs to completion and every
+        # setpoint is recorded (the iterable is passed through untouched).
+        s = sweep.Station(basedir=self.dir.name, verbose=False)
+        s.fp(self.dac.ch2)
+        res = s.sweep(self.dac.ch1, range(50))
+        with db.Reader(res.basedir, res.id) as r:
+            self.assertEqual(len(r.all_data()), 50)
+
+    def test_set_progress_invoked(self) -> None:
+        calls: list[dict[str, Any]] = []
+
+        def factory(iterable: Any, **kwargs: Any) -> Any:
+            calls.append(kwargs)
+            return iterable
+
+        sweep.set_progress(factory)
+        s = sweep.Station(basedir=self.dir.name, verbose=False)
+        s.fp(self.dac.ch2)
+        res = s.sweep(self.dac.ch1, range(10))
+        self.assertTrue(calls)
+        with db.Reader(res.basedir, res.id) as r:
+            self.assertEqual(len(r.all_data()), 10)
 
 
 if __name__ == "__main__":
